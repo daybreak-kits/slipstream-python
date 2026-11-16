@@ -6,7 +6,7 @@
 
     python3 -m venv .venv
     .venv/bin/pip install -r api/requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-    cd api && ../.venv/bin/python -m uvicorn l07_bootstrap.app_factory:create_app --factory --app-dir src --host 127.0.0.1 --port 3680 --log-level info --timeout-keep-alive 75 --env-file .env.prd
+    cd api cd api && ../.venv/bin/pythoncd api && ../.venv/bin/python /home/microsoft/slipstream-python/.venv/bin/python -m uvicorn l07_bootstrap.app_factory:create_app --factory --app-dir src --host 127.0.0.1 --port 3680 --log-level info --timeout-keep-alive 75 --env-file .env.prd
 
 Windows 侧双击仓库根的 start-prod.bat 即可（等价于上面的 cd api && ...）。
 
