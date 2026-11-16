@@ -1,0 +1,427 @@
+@import "tailwindcss";
+
+/* Dark is class-based: .dark is set on <html> by src/lib/theme.ts and the
+   anti-flash script in index.html. Declaring the variant keeps future dark:*
+   utilities on the class strategy instead of prefers-color-scheme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tailwind 4 theme: everything below used to live in tailwind.config.js.
+   Names are unchanged, so existing class names keep compiling. */
+@theme {
+  --font-sans: Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-badge: 6px;
+
+  /* shadcn's standard radius scale, mapped onto this repo's design values so
+     vendored components (rounded-sm/md/lg/xl) keep our geometry. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Text tiers (ADR-066 token mapping). Additions only: Tailwind's own
+     text-xs 12/16, text-sm 14/20, text-base 16/24 stay untouched so the
+     vendored components keep the upstream metrics. --text-2sm is the body
+     default (13/20); --text-2xs is the meta tier (11/16). */
+  --text-2xs: 11px;
+  --text-2xs--line-height: 16px;
+  --text-2sm: 13px;
+  --text-2sm--line-height: 20px;
+  --text-metric: 19px;
+  --text-metric--line-height: 26px;
+  --text-h1: 22px;
+  --text-h1--line-height: 28px;
+
+  /* Layout width token for the app-shell sidebar. Tailwind 4 has no --w-*
+     namespace: --width-sidebar is the one that generates w-sidebar
+     (verified with scripts/tw-probe.mjs against this file). */
+  --width-sidebar: 248px;
+
+  --shadow-card: 0 1px 2px rgba(17, 24, 39, 0.04), 0 8px 24px -18px rgba(17, 24, 39, 0.28);
+  --shadow-pop: 0 18px 40px -20px rgba(17, 24, 39, 0.35), 0 2px 8px rgba(17, 24, 39, 0.06);
+
+  --animate-fade-up: fade-up 200ms ease-out both;
+  --animate-fade-in: fade-in 200ms ease-out both;
+
+  /* Keyframes must live inside @theme to be emitted with the --animate-* vars. */
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
+
+/* Semantic colors forward the :root/.dark variables, so this MUST be @theme
+   inline: with a plain @theme the var() would resolve at the definition site
+   and dark mode would never see .dark's overrides. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-title: var(--text-title);
+  --color-body: var(--text-body);
+  --color-muted: var(--surface-2);
+  --color-faint: var(--text-faint);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-on: var(--primary-on);
+
+  --color-success: var(--success);
+  --color-success-text: var(--success-text);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-text: var(--danger-text);
+  --color-danger-soft: var(--danger-soft);
+
+  --color-info: var(--info);
+  --color-focus-ring: var(--focus-ring);
+
+  /* shadcn semantic names (ADR-064 batch 1+). Forwarded, not redefined: no new
+     colors are introduced here. --color-muted is the SURFACE token (surface-2),
+     matching shadcn's use of bg-muted for a muted surface; the muted TEXT color
+     lives in --color-muted-foreground (var(--text-muted)). The app's own
+     --color-faint/--color-title/--color-body remain extensions on top. */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f3f4f6;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --text-title: #111827;
+  --text-body: #1f2937;
+  --text-muted: #5b6573;
+  --text-faint: #7b8494;
+
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-active: #3730a3;
+  --primary-soft: #eef2ff;
+  --primary-on: #ffffff;
+
+  --success: #16a34a;
+  --success-text: #15803d;
+  --success-soft: #f0fdf4;
+  --warning: #d97706;
+  --warning-text: #b45309;
+  --warning-soft: #fffbeb;
+  --danger: #dc2626;
+  --danger-text: #b91c1c;
+  --danger-soft: #fef2f2;
+  --info: #475569;
+
+  /* Icon badge tints (§9.2): soft wash with a dark glyph on the light theme. */
+  --badge-flow-bg: #e8efff;
+  --badge-flow-fg: #1d4ed8;
+  --badge-token-bg: #e0f6f7;
+  --badge-token-fg: #0e7490;
+  --badge-cache-bg: #f0ecfe;
+  --badge-cache-fg: #6d28d9;
+  --badge-cost-bg: #fdf3e2;
+  --badge-cost-fg: #b45309;
+  --badge-error-bg: #fdeaea;
+  --badge-error-fg: #b91c1c;
+  --badge-latency-bg: #e6f6ec;
+  --badge-latency-fg: #15803d;
+
+  /* Floating layers: modal/drawer backdrop, tooltip surface, dark code panel.
+     Values preserve the previous hardcoded look while routing through tokens. */
+  --overlay: rgba(11, 15, 23, 0.45);
+  --tooltip-bg: rgba(11, 15, 23, 0.95);
+  --tooltip-border: #273244;
+  /* Tooltip 文字色：浮层底色在浅色主题下同样是深色，所以前景用浅色而非 --text。 */
+  --tooltip-fg: #f1f5f9;
+  --tooltip-fg-muted: rgba(241, 245, 249, 0.6);
+  --code-bg: #0b0f17;
+  /* Code panel foregrounds: the panel stays dark in both themes, so these never flip. */
+  --code-fg: #e2e8f0;
+  --code-fg-strong: #f8fafc;
+  --code-fg-muted: #94a3b8;
+  --code-fg-faint: #64748b;
+  --code-hover: rgba(148, 163, 184, 0.15);
+
+  /* Login page: fixed deep-navy palette, intentionally theme-independent. */
+  --login-ink: #0b1020;
+  --login-ink-2: #0e1526;
+  --login-accent: #4f46e5;
+  --login-teal: #14b8a6;
+  --login-teal-bright: #2dd4bf;
+  --login-green: #4ade80;
+  --login-amber: #fbbf24;
+  --login-indigo: #a5b4fc;
+
+  --focus-ring: #4f46e5;
+
+  /* Fixed categorical chart slots (ADR-026): 16 hues, primary indigo excluded. */
+  --chart-1: #2563eb;
+  --chart-2: #0d9488;
+  --chart-3: #d97706;
+  --chart-4: #dc2626;
+  --chart-5: #7c3aed;
+  --chart-6: #0891b2;
+  --chart-7: #65a30d;
+  --chart-8: #db2777;
+  --chart-9: #ea580c;
+  --chart-10: #059669;
+  --chart-11: #b45309;
+  --chart-12: #a16207;
+  --chart-13: #0284c7;
+  --chart-14: #be123c;
+  --chart-15: #0f766e;
+  --chart-16: #7c2d12;
+
+  /* shadcn-style aliases (ADR-064 batch 1+): new names only, every value
+     points at an existing token. Declared on :root, which is the same element
+     that carries .dark, so they follow the theme automatically. */
+  --background: var(--bg);
+  --foreground: var(--text-title);
+  --card: var(--surface);
+  --card-foreground: var(--text-title);
+  --popover: var(--surface);
+  --popover-foreground: var(--text-title);
+  --primary-foreground: var(--primary-on);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--text-body);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--primary-soft);
+  --accent-foreground: var(--primary-active);
+  --destructive: var(--danger);
+  --destructive-foreground: var(--primary-on);
+  --input: var(--border-strong);
+  --ring: var(--focus-ring);
+  --radius: 8px;
+}
+
+.dark {
+  --bg: #0b0f17;
+  --surface: #111827;
+  --surface-2: #172033;
+  --border: #273244;
+  --border-strong: #374357;
+  --text-title: #f9fafb;
+  --text-body: #e5e7eb;
+  --text-muted: #9ca3af;
+  --text-faint: #7f8a9c;
+
+  --primary: #818cf8;
+  --primary-hover: #a5b4fc;
+  --primary-active: #6366f1;
+  --primary-soft: rgba(129, 140, 248, 0.14);
+  --primary-on: #0b0f17;
+
+  --success: #4ade80;
+  --success-text: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.14);
+  --warning: #fbbf24;
+  --warning-text: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.14);
+  --danger: #f87171;
+  --danger-text: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.14);
+  --info: #94a3b8;
+
+  /* Dark theme flips the wash to a translucent tint and the glyph to a light hue. */
+  --badge-flow-bg: rgba(96, 165, 250, 0.16);
+  --badge-flow-fg: #93c5fd;
+  --badge-token-bg: rgba(34, 211, 238, 0.16);
+  --badge-token-fg: #67e8f9;
+  --badge-cache-bg: rgba(167, 139, 250, 0.16);
+  --badge-cache-fg: #c4b5fd;
+  --badge-cost-bg: rgba(251, 191, 36, 0.16);
+  --badge-cost-fg: #fcd34d;
+  --badge-error-bg: rgba(248, 113, 113, 0.16);
+  --badge-error-fg: #fca5a5;
+  --badge-latency-bg: rgba(74, 222, 128, 0.16);
+  --badge-latency-fg: #86efac;
+
+  /* Dark theme declares the same floating-layer family explicitly; identical
+     values keep the backdrop/tooltip contrast unchanged. */
+  --overlay: rgba(11, 15, 23, 0.45);
+  --tooltip-bg: rgba(11, 15, 23, 0.95);
+  --tooltip-border: #273244;
+  --tooltip-fg: #e5e7eb;
+  --tooltip-fg-muted: rgba(229, 231, 235, 0.55);
+  --code-bg: #0b0f17;
+
+  --focus-ring: #a5b4fc;
+
+  /* Dark mode gets its own lightness set; never reuse the light values. */
+  --chart-1: #60a5fa;
+  --chart-2: #2dd4bf;
+  --chart-3: #fbbf24;
+  --chart-4: #f87171;
+  --chart-5: #a78bfa;
+  --chart-6: #22d3ee;
+  --chart-7: #a3e635;
+  --chart-8: #f472b6;
+  --chart-9: #fb923c;
+  --chart-10: #34d399;
+  --chart-11: #eab308;
+  --chart-12: #c084fc;
+  --chart-13: #38bdf8;
+  --chart-14: #fb7185;
+  --chart-15: #5eead4;
+  --chart-16: #fdba74;
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    color: var(--text-body);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* SVG <text> 不在 HTML 排版上下文里继承字体栈时（图表轴、内联样式覆盖）会掉到 UA
+     默认的衬线字体；显式声明，保证图表文字与正文字体一致。 */
+  svg text {
+    font-family: var(--font-sans);
+  }
+
+  /* 等宽元素与 --font-mono 保持同一来源，避免各组件各写一套字体栈。 */
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-mono);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: var(--text-title);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background: var(--primary-soft);
+    color: var(--primary-active);
+  }
+
+  /* Chrome paints autofilled inputs with its own yellow/black scheme; force
+     the app tokens so light and dark themes both stay readable. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  textarea:-webkit-autofill:hover,
+  textarea:-webkit-autofill:focus,
+  select:-webkit-autofill,
+  select:-webkit-autofill:hover,
+  select:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--text-title);
+    -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+    caret-color: var(--text-title);
+    transition: background-color 9999s ease-out 0s;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* Tailwind 4 paints placeholders with the current text color at 50%;
+     v3 used gray-400. Keep the old, slightly stronger contrast. */
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--text-faint);
+  }
+
+  /* Tailwind 4 gives native buttons cursor: default. Keep the hand cursor
+     until the shadcn primitives (batch 1+) replace these elements. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* Custom utility classes: v4 only emits classes declared with @utility.
+   Plain @layer utilities rules would silently produce no CSS. */
+@utility bg-blueprint {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* text-balance is a built-in utility in Tailwind 3.4 and 4 with identical
+   output, so it is intentionally NOT redefined here (a duplicate @utility is a
+   needless build-time risk). */
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* sonner 的 toaster 运行时注入自己的 ui-sans-serif 字体栈，且注入的样式不带 layer；
+   @layer 内的规则（无论特异性）都会被压过去，所以这条必须放在 layer 外，并用
+   html + 属性选择器把特异性提到 (0,1,1)，稳定覆盖 sonner 的 (0,1,0)。 */
+html [data-sonner-toaster] {
+  font-family: var(--font-sans);
+}
+

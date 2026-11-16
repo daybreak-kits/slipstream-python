@@ -1,0 +1,291 @@
+{
+ "url": "http://127.0.0.1:3691/overview",
+ "docOverflowX": 0,
+ "themeClass": "",
+ "controls": 25,
+ "byKind": {
+  "a": [
+   {
+    "t": "全局概览",
+    "w": 223,
+    "h": 44,
+    "y": 90,
+    "fs": "13px",
+    "bg": "rgb(238, 242, 255)",
+    "fg": "rgb(79, 70, 229)",
+    "rad": "8px",
+    "cls": "group relative flex items-center rounded-control py-2 text-2sm transition-colors"
+   },
+   {
+    "t": "数据看板",
+    "w": 223,
+    "h": 44,
+    "y": 136,
+    "fs": "13px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "8px",
+    "cls": "group relative flex items-center rounded-control py-2 text-2sm transition-colors"
+   },
+   {
+    "t": "使用日志",
+    "w": 223,
+    "h": 44,
+    "y": 182,
+    "fs": "13px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "8px",
+    "cls": "group relative flex items-center rounded-control py-2 text-2sm transition-colors"
+   },
+   {
+    "t": "渠道管理",
+    "w": 223,
+    "h": 44,
+    "y": 264,
+    "fs": "13px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "8px",
+    "cls": "group relative flex items-center rounded-control py-2 text-2sm transition-colors"
+   },
+   {
+    "t": "模型管理",
+    "w": 223,
+    "h": 44,
+    "y": 310,
+    "fs": "13px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "8px",
+    "cls": "group relative flex items-center rounded-control py-2 text-2sm transition-colors"
+   },
+   {
+    "t": "模型试验",
+    "w": 223,
+    "h": 44,
+    "y": 392,
+    "fs": "13px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "8px",
+    "cls": "group relative flex items-center rounded-control py-2 text-2sm transition-colors"
+   },
+   {
+    "t": "用户密钥",
+    "w": 223,
+    "h": 44,
+    "y": 474,
+    "fs": "13px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "8px",
+    "cls": "group relative flex items-center rounded-control py-2 text-2sm transition-colors"
+   },
+   {
+    "t": "系统设置",
+    "w": 223,
+    "h": 44,
+    "y": 520,
+    "fs": "13px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "8px",
+    "cls": "group relative flex items-center rounded-control py-2 text-2sm transition-colors"
+   },
+   {
+    "t": "创建用户密钥",
+    "w": 82,
+    "h": 16,
+    "y": 342,
+    "fs": "11px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(79, 70, 229)",
+    "rad": "0px",
+    "cls": "inline-flex items-center gap-1 text-2xs font-medium text-primary hover:underline"
+   },
+   {
+    "t": "模型目录",
+    "w": 44,
+    "h": 16,
+    "y": 349,
+    "fs": "11px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(226, 232, 240)",
+    "rad": "0px",
+    "cls": "mx-1 text-[var(--code-fg)] underline underline-offset-2 hover:text-[var(--code-f"
+   },
+   {
+    "t": "可调用模型\n\n7",
+    "w": 368,
+    "h": 78,
+    "y": 406,
+    "fs": "14px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "0px",
+    "cls": "group"
+   },
+   {
+    "t": "渠道\n\n4",
+    "w": 368,
+    "h": 78,
+    "y": 406,
+    "fs": "14px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "0px",
+    "cls": "group"
+   },
+   {
+    "t": "用户密钥\n\n3",
+    "w": 368,
+    "h": 78,
+    "y": 406,
+    "fs": "14px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "0px",
+    "cls": "group"
+   },
+   {
+    "t": "前往渠道管理",
+    "w": 86,
+    "h": 16,
+    "y": 603,
+    "fs": "11px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(79, 70, 229)",
+    "rad": "8px",
+    "cls": "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded"
+   },
+   {
+    "t": "管理用户密钥",
+    "w": 86,
+    "h": 16,
+    "y": 676,
+    "fs": "11px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(79, 70, 229)",
+    "rad": "8px",
+    "cls": "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded"
+   },
+   {
+    "t": "在模型试验中验证",
+    "w": 108,
+    "h": 16,
+    "y": 749,
+    "fs": "11px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(79, 70, 229)",
+    "rad": "8px",
+    "cls": "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded"
+   },
+   {
+    "t": "查看模型目录",
+    "w": 126,
+    "h": 32,
+    "y": 822,
+    "fs": "13px",
+    "bg": "rgb(255, 255, 255)",
+    "fg": "rgb(17, 24, 39)",
+    "rad": "8px",
+    "cls": "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-control "
+   }
+  ],
+  "button": [
+   {
+    "t": "收起导航栏",
+    "w": 40,
+    "h": 40,
+    "y": 12,
+    "fs": "14px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "8px",
+    "cls": "shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control tex"
+   },
+   {
+    "t": "搜索\n⌘K",
+    "w": 132,
+    "h": 36,
+    "y": 14,
+    "fs": "13px",
+    "bg": "rgb(255, 255, 255)",
+    "fg": "rgb(91, 101, 115)",
+    "rad": "8px",
+    "cls": "shrink-0 items-center justify-center whitespace-nowrap rounded-control transitio"
+   },
+   {
+    "t": "本地",
+    "w": 66,
+    "h": 36,
+    "y": 14,
+    "fs": "13px",
+    "bg": "rgb(255, 255, 255)",
+    "fg": "rgb(91, 101, 115)",
+    "rad": "8px",
+    "cls": "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-contr"
+   },
+   {
+    "t": "切换主题，当前：浅色",
+    "w": 40,
+    "h": 40,
+    "y": 12,
+    "fs": "14px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "8px",
+    "cls": "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded"
+   },
+   {
+    "t": "A\nadmin",
+    "w": 107,
+    "h": 40,
+    "y": 12,
+    "fs": "14px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(31, 41, 55)",
+    "rad": "8px",
+    "cls": "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-contr"
+   },
+   {
+    "t": "复制连接地址",
+    "w": 40,
+    "h": 40,
+    "y": 253,
+    "fs": "14px",
+    "bg": "rgb(255, 255, 255)",
+    "fg": "rgb(17, 24, 39)",
+    "rad": "8px",
+    "cls": "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-control "
+   },
+   {
+    "t": "修改连接地址",
+    "w": 40,
+    "h": 40,
+    "y": 253,
+    "fs": "14px",
+    "bg": "rgb(255, 255, 255)",
+    "fg": "rgb(17, 24, 39)",
+    "rad": "8px",
+    "cls": "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-control "
+   },
+   {
+    "t": "复制",
+    "w": 64,
+    "h": 32,
+    "y": 199,
+    "fs": "13px",
+    "bg": "rgba(0, 0, 0, 0)",
+    "fg": "rgb(148, 163, 184)",
+    "rad": "8px",
+    "cls": "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded"
+   }
+  ]
+ },
+ "trunc": [],
+ "clipped": [],
+ "unnamed": [],
+ "tables": []
+}
