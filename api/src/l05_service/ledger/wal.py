@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, Protocol
 
+from l01_core.jsonfast import dumps_compact
 from l01_core.logging import get_logger
 
 logger = get_logger("slipstream.ledger.wal")
@@ -188,7 +189,7 @@ class WalWriter:
 
     def append(self, record: dict[str, Any]) -> None:
         self._ensure_file()
-        line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+        line = dumps_compact(record).decode("utf-8")
         self._file.write(line + "\n")
         self._records += 1
         self._pending.append(record)

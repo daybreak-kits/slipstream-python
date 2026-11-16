@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from functools import lru_cache
 from typing import Any
 
 # Header names whose values must never reach a log or a stored body. The set is
@@ -35,6 +36,16 @@ SENSITIVE_KEYS = SENSITIVE_HEADERS | frozenset(
 )
 
 MASK = "***"
+
+# Precomputed once instead of per is_sensitive_key call: the normalized
+# SENSITIVE_KEYS forms and the keyword buckets are constants.
+_KNOWN_SENSITIVE = frozenset(
+    item.replace("_", "-") for item in SENSITIVE_KEYS
+) | SENSITIVE_HEADERS
+_SENSITIVE_SUFFIXES = ("token", "secret", "password")
+_SENSITIVE_WORDS = frozenset(
+    {"token", "secret", "password", "key", "apikey", "authorization", "cookie"}
+)
 _HEADER_LINE_RE = re.compile(
     r"(?im)^(\s*(?:authorization|proxy-authorization|api-key|x-api-key|cookie|set-cookie)\s*:\s*)(.+)$"
 )
@@ -51,14 +62,14 @@ def get_logger(name: str = "system") -> logging.Logger:
     return logging.getLogger(name)
 
 
+@lru_cache(maxsize=512)
 def is_sensitive_key(name: str) -> bool:
     normalized = name.strip().lower().replace("_", "-")
-    known = {item.replace("_", "-") for item in SENSITIVE_KEYS} | SENSITIVE_HEADERS
-    if normalized in known or normalized.endswith(("token", "secret", "password")):
+    if normalized in _KNOWN_SENSITIVE or normalized.endswith(_SENSITIVE_SUFFIXES):
         return True
     # Covers refresh_token, id-token, client_secret, api_key, x-auth-token...
     return any(
-        part in {"token", "secret", "password", "key", "apikey", "authorization", "cookie"}
+        part in _SENSITIVE_WORDS
         for part in normalized.split("-")
         if part
     )
@@ -86,6 +97,16 @@ def redact_headers(headers: Any) -> Any:
 def redact_text(value: str) -> str:
     """Mask credentials embedded in free text (URLs, header lines, JSON snippets)."""
     if not value:
+        return value
+    # Fast path: every pattern below needs one of these characters to match
+    # (a quoted JSON key, a "key:" header line, or a ?/& query pair); plain
+    # words pass through untouched.
+    if (
+        '"' not in value
+        and ":" not in value
+        and "?" not in value
+        and "&" not in value
+    ):
         return value
     redacted = _JSON_KV_RE.sub(lambda match: match.group(1) + MASK + match.group(3), value)
     redacted = _HEADER_LINE_RE.sub(lambda match: match.group(1) + MASK, redacted)

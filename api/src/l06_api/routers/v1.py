@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
+from l01_core.jsonfast import dumps_compact
 from l05_service import catalog
 from l05_service import chat as chat_service
 from l05_service.inflight import get_inflight_gate
@@ -113,7 +114,14 @@ async def chat_completions(
         # Upstream response headers are relayed as-is (framing already stripped by
         # prepare_response); the gateway owns its request id.
         headers = _overlay_headers(dict(result.headers), {"x-request-id": request_id})
-        return JSONResponse(content=result.payload, headers=headers)
+        # orjson renders the compact body (same bytes as JSONResponse for
+        # JSON-compatible payloads); Response keeps JSONResponse's header
+        # behaviour: content-type is only added when the upstream sent none.
+        return Response(
+            content=dumps_compact(result.payload),
+            headers=headers,
+            media_type="application/json",
+        )
     finally:
         gate.release()
 
