@@ -14,11 +14,10 @@
 
 | 数据看板 | 渠道管理 |
 |---|---|
-| ![数据看板](docs/screenshots/dashboard.png) | ![渠道管理](docs/screenshots/channels.png) |
+| ![数据看板](docs/screenshots/dashboard.png) | ![模型管理](docs/screenshots/models.png) |
 
 | 使用日志 | 模型管理 |
 |---|---|
-| ![使用日志](docs/screenshots/logs.png) | ![模型管理](docs/screenshots/models.png) |
 
 ## Quick Start
 

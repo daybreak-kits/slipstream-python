@@ -358,3 +358,4 @@ web/.vite/
 # visual audit artifacts (screenshots/dumps) stay out of git
 web/e2e/audit/
 web/e2e/.tmp/
+web/e2e/__screenshots__/
