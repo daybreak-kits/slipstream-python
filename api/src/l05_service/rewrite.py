@@ -235,7 +235,9 @@ def prepare_request(
         for name in set(before) | set(after)
         if before.get(name) != after.get(name)
     )
-    changes = diff_body(body, rewritten)
+    # Without body rules the rewrite is the original dict (see above), so the
+    # diff is empty by construction and walking both trees would be wasted work.
+    changes = diff_body(body, rewritten) if request_body_rules else []
     return PreparedRequest(
         headers=headers,
         body=rewritten,

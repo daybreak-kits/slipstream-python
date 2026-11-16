@@ -119,6 +119,7 @@ async def execute_with_lock_retry(
     dialect: str,
     attempts: int = 3,
     base_delay_s: float = 0.05,
+    parameters: Any = None,
 ) -> Any:
     """Execute a write, retrying only on SQLite's single-writer lock.
 
@@ -130,7 +131,9 @@ async def execute_with_lock_retry(
     total = max(1, int(attempts))
     for attempt in range(total):
         try:
-            return await session.execute(statement)
+            if parameters is None:
+                return await session.execute(statement)
+            return await session.execute(statement, parameters)
         except OperationalError as exc:
             if dialect != SQLITE or not is_lock_error(exc) or attempt == total - 1:
                 raise

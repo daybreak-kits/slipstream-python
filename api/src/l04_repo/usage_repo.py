@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from l01_core.ids import new_id
@@ -40,6 +40,45 @@ def _column_default(column: Any) -> Any:
     return default.arg
 
 
+def _column_plan(column: Any) -> tuple[str, Any, bool]:
+    """The default a column contributes to a fresh row, resolved once.
+
+    _column_default re-inspects the SQLAlchemy default object on every row;
+    the answer for a static schema never changes, so the sink hot path can
+    keep the resolved form (callable vs. constant) instead of re-deriving it.
+    """
+    default = column.default
+    if default is None:
+        return (column.name, None, False)
+    if getattr(default, "is_callable", False):
+        return (column.name, default.arg, True)
+    return (column.name, default.arg, False)
+
+
+_LOG_COLUMNS = tuple(orm.RequestLogORM.__table__.columns)
+_LOG_COLUMN_PLAN = tuple(_column_plan(column) for column in _LOG_COLUMNS)
+
+# SQLite batch insert: the ORM construct compiles and coerces every bind
+# parameter (about 130 calls per row for this 45-column table) although every
+# value build_log_row() produces is already a SQLite scalar. The raw statement
+# is identical SQL - same columns, same ON CONFLICT DO NOTHING - so the stored
+# rows cannot differ.
+_SQLITE_INSERT = ""
+
+
+def _sqlite_insert_sql() -> str:
+    global _SQLITE_INSERT
+    if not _SQLITE_INSERT:
+        columns = ", ".join(column.name for column in _LOG_COLUMNS)
+        placeholders = ", ".join(":" + column.name for column in _LOG_COLUMNS)
+        _SQLITE_INSERT = "INSERT INTO %s (%s) VALUES (%s) ON CONFLICT DO NOTHING" % (
+            orm.RequestLogORM.__tablename__,
+            columns,
+            placeholders,
+        )
+    return _SQLITE_INSERT
+
+
 def _safe_headers(headers: dict[str, str] | None) -> dict[str, Any]:
     """The request headers as they may be stored: credentials masked."""
     redacted = redact_headers(dict(headers or {}))
@@ -57,10 +96,21 @@ def build_log_row(
     request_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build a complete request_logs row: every column, no value left to chance."""
-    row: dict[str, Any] = {
-        column.name: _column_default(column)
-        for column in orm.RequestLogORM.__table__.columns
-    }
+    row: dict[str, Any] = {}
+    for name, arg, is_callable in _LOG_COLUMN_PLAN:
+        if arg is None:
+            row[name] = None
+        elif not is_callable:
+            row[name] = arg
+        else:
+            value = None
+            for call_args in ((), (None,)):
+                try:
+                    value = arg(*call_args)
+                    break
+                except TypeError:
+                    continue
+            row[name] = value
     row["id"] = new_id()
     row.update(billing)
     row.update(observability)
@@ -109,6 +159,18 @@ async def insert_request_logs(session: AsyncSession, rows: list[dict[str, Any]])
         return 0
     rows, trails = _split_trails(rows)
     dialect = _dialect_name(session)
+    if dialect == SQLITE:
+        # Same statement as the ORM construct below, driven as one executemany
+        # so SQLAlchemy does not re-derive 45 column types for every row.
+        await execute_with_lock_retry(
+            session,
+            text(_sqlite_insert_sql()),
+            parameters=list(rows),
+            dialect=dialect,
+        )
+        for log_id, attempts in trails.items():
+            await attempt_filters.insert_attempts(session, log_id, attempts)
+        return len(rows)
     if dialect in (SQLITE, POSTGRESQL):
         # No conflict target: any uniqueness violation (the primary key or the
         # unique request_id) means the row is already there. SQLite and

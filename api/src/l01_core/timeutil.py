@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 
 def now_ms() -> int:
-    return int(datetime.now(timezone.utc).timestamp() * 1000)
+    # Same UTC epoch milliseconds as datetime.now(timezone.utc).timestamp(),
+    # without building a datetime object: this runs many times per request.
+    return int(time.time() * 1000)
 
 
 def dt_to_ms(value: datetime | None) -> int | None:
