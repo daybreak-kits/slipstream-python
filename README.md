@@ -17,7 +17,7 @@
 ```bash
 git clone git@github.com:daybreak-kits/slipstream-python.git
 cd slipstream-python
-./start-prod.sh
+./start-prd.sh
 ```
 
 首次运行会自动完成：创建 `.venv` → 安装 `api/requirements.txt` → 从 `api/.env.prd.example` 生成 `api/.env.prd` →（若 `web/dist` 缺失且装有 Node）构建管理 UI → 前台启动网关。
@@ -51,7 +51,7 @@ curl http://127.0.0.1:3680/health
 cd web && npm install && npm run build
 ```
 
-`start-prod.sh` 会在 `web/dist` 缺失且装有 Node 时自动执行上述构建。没有 Node 时网关照常服务 API（UI 路径返回 404）。
+`start-prd.sh` 会在 `web/dist` 缺失且装有 Node 时自动执行上述构建。没有 Node 时网关照常服务 API（UI 路径返回 404）。
 
 ## 项目结构
 
