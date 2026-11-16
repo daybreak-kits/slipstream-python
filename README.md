@@ -10,6 +10,16 @@
 - **单端口生产形态**：/v1 API、管理 UI（web/dist）、GET /health 探活同源托管
 - **存储**：SQLite（WAL）默认开箱即用；可选 PostgreSQL（asyncpg）
 
+## 界面预览
+
+| 数据看板 | 渠道管理 |
+|---|---|
+| ![数据看板](docs/screenshots/dashboard.png) | ![渠道管理](docs/screenshots/channels.png) |
+
+| 使用日志 | 模型管理 |
+|---|---|
+| ![使用日志](docs/screenshots/logs.png) | ![模型管理](docs/screenshots/models.png) |
+
 ## Quick Start
 
 前提：Linux 或 macOS + bash；Python 3.14（在 3.14.4 验证）；构建管理 UI 需 Node 20+（可选）。
