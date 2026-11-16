@@ -354,3 +354,7 @@ docs/scratch/
 web/dist/
 *.tsbuildinfo
 web/.vite/
+
+# visual audit artifacts (screenshots/dumps) stay out of git
+web/e2e/audit/
+web/e2e/.tmp/
