@@ -10,6 +10,7 @@ PY="$VENV/bin/python"
 PIP="$VENV/bin/pip"
 
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not found" >&2; exit 1; }
+HOST="${SLIPSTREAM_HOST:-127.0.0.1}"   # LAN: SLIPSTREAM_HOST=0.0.0.0 ./start-prd.sh
 
 if [ ! -x "$PY" ]; then
   echo "==> creating venv at .venv"
@@ -39,5 +40,5 @@ fi
 cd "$ROOT/api"
 echo "==> gateway on http://127.0.0.1:3680 (foreground; Ctrl+C to stop)"
 exec "$PY" -m uvicorn l07_bootstrap.app_factory:create_app --factory --app-dir src \
-  --host 127.0.0.1 --port 3680 --log-level info --timeout-keep-alive 75 \
+  --host "$HOST" --port 3680 --log-level info --timeout-keep-alive 75 \
   --env-file .env.prd
