@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/logo-v10-contrast.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0B0F17" />
+    <title>驭流 Slipstream · LLM API 网关</title>
+    <script>
+      (function () {
+        try {
+          var theme = null;
+          var raw = localStorage.getItem("system.storage");
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === "object" && typeof parsed.theme === "string") {
+              theme = parsed.theme;
+            }
+          }
+          var dark =
+            theme === "dark" ||
+            ((!theme || theme === "system") &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (error) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-nwLUdCPC.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-Bx5G8E-q.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-query-CnqY9PEB.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-misc-DI-jBEEK.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-icons-0zcA8Y01.js">
+    <link rel="modulepreload" crossorigin href="/assets/app-core-Ds5oOJGj.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-router-CgG1ZxP1.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-forms-BN9sP02V.js">
+    <link rel="modulepreload" crossorigin href="/assets/app-components-7-4M0xoW.js">
+    <link rel="modulepreload" crossorigin href="/assets/app-pages-DtEJDj3D.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-BjRLkLuD.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

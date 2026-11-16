@@ -333,3 +333,19 @@ datadir/
 # other files
 *.zip
 *.key
+
+# === slipstream runtime (migration 2026-11-16) ===
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+.scratch/
+.pytest-dbs/
+data-gym-cache/
+prof_*.py
+# keep the built UI (committed so prod needs no node toolchain)
+!web/dist/

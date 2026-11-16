@@ -1,0 +1,20 @@
+fastapi==0.162.2
+uvicorn[standard]==0.54.0
+sqlalchemy[asyncio]==2.1.8
+aiosqlite==0.22.1
+pydantic==2.14.3
+pydantic-settings==2.16.2
+httpx==0.28.1
+PyJWT==2.15.1
+cryptography==50.0.2
+python-multipart==0.0.33
+tiktoken==0.14.0
+pytest==9.2.0
+pytest-asyncio==1.4.1
+pytest-xdist==3.8.0
+litellm==1.108.4
+# PostgreSQL driver for DATABASE_URL=postgresql+asyncpg://...
+# NOT installed in this workspace (no network / no pip): the PostgreSQL code
+# path is therefore unverified against a real server here. Install it in the
+# deployment environment: pip install asyncpg==0.30.0
+asyncpg==0.30.0
