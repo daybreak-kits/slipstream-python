@@ -9,6 +9,9 @@ database per test. No network access and no external service is required.
 ```bash
 cd api
 PYTHONPATH=src .venv/Scripts/python.exe -m pytest -q -p no:cacheprovider
+
+# Linux (production machine)
+PYTHONPATH=src ../.venv/bin/python -m pytest -q -p no:cacheprovider
 ```
 
 `-p no:cacheprovider` matters on this repo: the sandbox refuses to create
