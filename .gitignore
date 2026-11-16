@@ -349,3 +349,6 @@ data-gym-cache/
 prof_*.py
 # keep the built UI (committed so prod needs no node toolchain)
 !web/dist/
+
+# docs working area (bench data, profiling dumps)
+docs/scratch/
