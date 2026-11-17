@@ -109,6 +109,10 @@ async def _read_json_body(request: Request) -> dict[str, Any]:
             ],
             body,
         )
+    # 解析完成后释放原始字节：Starlette 会把 body 缓存在 request._body 上，
+    # 流式中继期间（长流）这份 200KB-1.2MB 的原文随请求对象存活到流结束
+    #（memray 归因：160 条流 ≈ 105MB）。日志快照持有的是解析后的 dict。
+    request._body = b""
     return parsed
 
 

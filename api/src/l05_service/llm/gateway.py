@@ -1223,10 +1223,14 @@ async def _httpx_complete(
     headers = prepared.headers if prepared is not None else build_headers(channel, request_id)
     rewritten = prepared.body if prepared is not None else body
     try:
+        # 预编码一次（orjson，compact bytes）再交给 httpx：json= 会让 httpx 内部
+        # 再走一遍 stdlib json.dumps，200KB 级请求体在膝点处占主循环 ~8% CPU
+        #（py-spy 304 QPS 归因）；build_headers 已固定 content-type。
+        content = jsonfast.dumps_compact(build_request_body(channel, upstream_model, rewritten))
         response = await _get_client().post(
             url,
             headers=headers,
-            json=build_request_body(channel, upstream_model, rewritten),
+            content=content,
             timeout=_client_timeout(get_settings(), total_s, upstream_timeouts),
         )
     except (httpx.ConnectTimeout, httpx.ConnectError) as exc:
@@ -1757,7 +1761,7 @@ class UpstreamStream:
             if len(self.reasoning_content) < 65536:
                 self.reasoning_content += reasoning
 
-    _RELAY_TEXT_CAP = 4_000_000
+    _RELAY_TEXT_CAP = 262_144
 
     def _stash_relay_text(self, text: str) -> None:
         # Accumulate relayed output (bounded) so the usage fallback can count
@@ -1811,6 +1815,14 @@ class UpstreamStream:
             await self.response.aclose()
         except Exception:  # noqa: BLE001
             pass
+        # 释放对响应/请求对象的引用：memray 归因显示 finalize 之后若仍持有
+        # response（其上挂着 1.2MB 级的编码请求体），引用链会存活到进程结束
+        # （160 条流 = 183MB 不归还）。迭代器已关闭，这里置空是纯回收。
+        self.response = None
+        self._byte_iter = None
+        self._line_iter = None
+        self._raw_buf = b""
+        self.prefetched = []
 
 
 class LiteLLMUpstreamStream:
@@ -1888,7 +1900,7 @@ class LiteLLMUpstreamStream:
     def usage_from_upstream(self) -> bool:
         return bool(self._usage_observer is not None and self._usage_observer.seen)
 
-    _RELAY_TEXT_CAP = 4_000_000
+    _RELAY_TEXT_CAP = 262_144
 
     def _stash_relay_text(self, text: str) -> None:
         # Accumulate relayed output (bounded) so the usage fallback can count
@@ -2195,7 +2207,11 @@ async def _httpx_open_stream(
             "POST",
             url,
             headers=headers,
-            json=build_request_body(channel, upstream_model, {**rewritten, "stream": True}),
+            # 预编码一次（orjson）：见 _httpx_complete 的同名注释；memray 归因
+            # 里这份编码体还是重载流 RSS 的最大单件（1.2MB/流）。
+            content=jsonfast.dumps_compact(
+                build_request_body(channel, upstream_model, {**rewritten, "stream": True})
+            ),
             timeout=_stream_client_timeout(get_settings(), read_s, upstream_timeouts),
         )
         response = await client.send(request, stream=True)

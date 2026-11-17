@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from l01_core import jsonfast
 from l01_core.timeutil import now_ms
 
 from l01_core.logging import get_logger, redact, redact_text
@@ -92,7 +93,9 @@ def render_value(value: Any, limit_bytes: int) -> str | None:
     if isinstance(value, str):
         text = redact_text(_bound_text(value, limit_bytes))
     else:
-        text = json.dumps(redact(_bound_deep(value, limit_bytes)), ensure_ascii=False)
+        # orjson 渲染：body 行进 WAL/落库前的最后一步，膝点归因里 stdlib
+        # iterencode 占主循环 ~2.5%，换 compact bytes + decode 甩掉它。
+        text = jsonfast.dumps_compact(redact(_bound_deep(value, limit_bytes))).decode("utf-8")
     return truncate_text(text, limit_bytes)
 
 
