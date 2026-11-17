@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -190,6 +191,31 @@ async def test_acked_wal_is_truncated_so_restart_replays_nothing(client, app, wa
 
     assert await replay_pending(directory, SqliteLedgerSink(app.state.session_factory)) == 0
     assert await _ledger_rows(app) == []
+
+
+async def test_background_sync_fsyncs_without_an_inline_flush(wal_root) -> None:
+    """P1-R8: with background_sync rows become durable without blocking anyone.
+
+    The writer's own thread fsyncs within the flush_ms window while the test
+    thread never calls flush(); the batch then replays like any other.
+    """
+    directory = wal_root / "bg-wal"
+    writer = WalWriter(directory, flush_ms=100, background_sync=True)
+    writer.append(ledger_repo.ledger_row(request_id="req-bg", prompt_tokens=1))
+
+    deadline = time.monotonic() + 2.0
+    while writer.unsynced and time.monotonic() < deadline:
+        await asyncio.sleep(0.01)
+    assert writer.unsynced is False
+
+    path = Path(writer.path)
+    writer.close()
+    lines = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [row["request_id"] for row in lines] == ["req-bg"]
 
 
 async def test_wal_write_failure_degrades_to_synchronous_write(

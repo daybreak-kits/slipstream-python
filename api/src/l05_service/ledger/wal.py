@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -145,6 +146,13 @@ class WalWriter:
     calls ack() after the database commit, which appends a committed marker.
     When every record in the file is durable the file is truncated so a
     long-lived process does not accumulate an unbounded WAL.
+
+    With background_sync=True the fsync moves to a dedicated daemon thread:
+    append()/ack() wake it at the same batch boundaries, so the caller's
+    event loop never waits on disk while the durability window stays put.
+    flush() stays synchronous and may run on any thread. append() is not
+    serialized against flush() on purpose (a slow fsync must never delay the
+    request path); close()/truncate() exclude in-flight flushes via _io_lock.
     """
 
     def __init__(
@@ -154,6 +162,7 @@ class WalWriter:
         flush_ms: int = 100,
         max_records: int = 256,
         clock=time.monotonic,
+        background_sync: bool = False,
     ) -> None:
         self.directory = Path(directory)
         self.flush_ms = max(1, int(flush_ms))
@@ -164,10 +173,24 @@ class WalWriter:
         self._path: Path | None = None
         self._records = 0
         self._pending: list[dict[str, Any]] = []
-        self._unflushed = 0
+        # _seq counts every write to the current file (rows and committed
+        # markers); _flushed_seq is the prefix fsync has made durable. A
+        # flush snapshots _seq before draining the buffer, so _flushed_seq
+        # never claims more than what is actually on disk.
+        self._seq = 0
+        self._flushed_seq = 0
         self._last_flush = clock()
         self.appends = 0
         self.flushes = 0
+        self._io_lock = threading.Lock()
+        self._wake = threading.Event()
+        self._stop = threading.Event()
+        self._sync_thread: threading.Thread | None = None
+        if background_sync:
+            self._sync_thread = threading.Thread(
+                target=self._sync_loop, name="wal-fsync", daemon=True
+            )
+            self._sync_thread.start()
 
     @property
     def path(self) -> Path | None:
@@ -176,6 +199,11 @@ class WalWriter:
     @property
     def pending(self) -> int:
         return len(self._pending)
+
+    @property
+    def unsynced(self) -> bool:
+        """True when writes to the current file are not fsynced yet."""
+        return self._seq != self._flushed_seq
 
     def _ensure_file(self) -> None:
         if self._file is not None:
@@ -193,18 +221,61 @@ class WalWriter:
         self._file.write(line + "\n")
         self._records += 1
         self._pending.append(record)
-        self._unflushed += 1
+        self._seq += 1
         self.appends += 1
         elapsed_ms = (self._clock() - self._last_flush) * 1000.0
-        if self._unflushed >= self.max_records or elapsed_ms >= self.flush_ms:
+        if (
+            self._seq - self._flushed_seq >= self.max_records
+            or elapsed_ms >= self.flush_ms
+        ):
+            self._wake_sync()
+
+    def _wake_sync(self) -> None:
+        """Run the batch fsync: on the sync thread if there is one.
+
+        Foreground writers (default) keep the historical inline flush, so
+        LedgerService and the replay tests behave exactly as before.
+        """
+        if self._sync_thread is not None:
+            self._wake.set()
+        else:
             self.flush()
 
+    def _sync_loop(self) -> None:
+        """Background fsync loop; runs on its own daemon thread, never the loop.
+
+        Woken by append()/ack() at the batch boundaries and at most every
+        flush_ms on its own, so rows stay at risk for at most flush_ms (or
+        max_records appends) even when requests stop arriving.
+        """
+        while not self._stop.is_set():
+            self._wake.wait(self.flush_ms / 1000.0)
+            self._wake.clear()
+            if self._stop.is_set():
+                return
+            if not self.unsynced:
+                continue
+            try:
+                self.flush()
+            except Exception as exc:  # noqa: BLE001 - the loop must not die
+                logger.warning("账本 WAL 后台落盘失败，行留在缓冲：%s", exc)
+
     def flush(self) -> None:
+        with self._io_lock:
+            self._flush_locked()
+
+    def _flush_locked(self) -> None:
+        """Drain the userspace buffer and fsync; the caller holds _io_lock."""
         if self._file is None:
             return
+        # Snapshot before draining: rows appended past this point stay
+        # unsynced even when the drain overtakes them, so the next cycle
+        # still covers them. The snapshot may under-report durability
+        # (one extra fsync) but never over-report it.
+        seq = self._seq
         self._file.flush()
         os.fsync(self._file.fileno())
-        self._unflushed = 0
+        self._flushed_seq = seq
         self._last_flush = self._clock()
         self.flushes += 1
 
@@ -219,30 +290,52 @@ class WalWriter:
         del self._pending[:count]
         committed = self._records - len(self._pending)
         self._file.write(json.dumps({"committed": committed}) + "\n")
-        self.flush()
+        self._seq += 1
+        self._wake_sync()
         if not self._pending:
             self._truncate()
 
     def _truncate(self) -> None:
         # Every record is durable: an empty file replays nothing next startup.
-        self.close()
-        if self._path is None:
-            return
-        try:
-            self._file = self._path.open("w", encoding="utf-8")
-        except OSError as exc:  # pragma: no cover - disk level failure
-            logger.warning("账本 WAL 截断失败 %s：%s", self._path, exc)
-            self._file = None
-            return
-        self._records = 0
-        self._unflushed = 0
-        self._last_flush = self._clock()
+        # The file swap excludes in-flight flushes but keeps the sync thread:
+        # the writer stays open for the rows that follow.
+        with self._io_lock:
+            self._close_file_locked()
+            if self._path is None:
+                return
+            try:
+                self._file = self._path.open("w", encoding="utf-8")
+            except OSError as exc:  # pragma: no cover - disk level failure
+                logger.warning("账本 WAL 截断失败 %s：%s", self._path, exc)
+                self._file = None
+                return
+            self._records = 0
+            self._seq = 0
+            self._flushed_seq = 0
+            self._last_flush = self._clock()
 
     def close(self) -> None:
+        self._stop_sync_thread()
+        with self._io_lock:
+            self._close_file_locked()
+
+    def _stop_sync_thread(self) -> None:
+        thread = self._sync_thread
+        if thread is None:
+            return
+        self._stop.set()
+        self._wake.set()
+        # An in-flight flush finishes under _io_lock, so joining here never
+        # races the file close below; the cap only bounds a stuck disk.
+        thread.join(timeout=2.0)
+        self._sync_thread = None
+
+    def _close_file_locked(self) -> None:
+        """Flush and close the current file; the caller holds _io_lock."""
         if self._file is None:
             return
         try:
-            self.flush()
+            self._flush_locked()
         finally:
             self._file.close()
             self._file = None

@@ -57,6 +57,9 @@ class LedgerService:
         self._wal = WalWriter(
             cfg.ledger_wal_dir,
             flush_ms=cfg.ledger_wal_flush_ms,
+            # 与 usage 管线对称（ADR-078 轮的 R8 改造）：fsync 走后台线程，
+            # 事件循环内不做同步落盘；持久性窗口仍由 ledger_wal_flush_ms 表达。
+            background_sync=True,
         )
         self.replayed = await replay_pending(cfg.ledger_wal_dir, self._sink)
         if self.replayed:
@@ -94,7 +97,8 @@ class LedgerService:
         batch_size = max(1, int(cfg.ledger_sink_batch))
         total = 0
         async with self._lock:
-            wal.flush()
+            if wal.unsynced:
+                await asyncio.to_thread(wal.flush)
             while True:
                 batch = wal.take_pending(batch_size)
                 if not batch:

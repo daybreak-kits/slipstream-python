@@ -78,7 +78,11 @@ class UsageSink:
         except Exception as exc:  # noqa: BLE001 - replay must not block startup
             self._last_error = str(exc)
             logger.warning("usage WAL replay failed, the rows stay in the WAL: %s", exc)
-        self._wal = WalWriter(directory, flush_ms=settings.usage_wal_flush_ms)
+        # P1-R8: the fsync runs on the WAL's own thread, so the request path
+        # (record -> append) and this loop never block on disk.
+        self._wal = WalWriter(
+            directory, flush_ms=settings.usage_wal_flush_ms, background_sync=True
+        )
         self._runner_task = asyncio.create_task(self._runner(), name="usage-sink")
 
     async def drain(self) -> None:
@@ -176,7 +180,11 @@ class UsageSink:
         written = 0
         async with self._lock:
             self._drain_spill()
-            wal.flush()
+            if wal.unsynced:
+                # Checkpoint unchanged: rows become durable before they reach
+                # the database. The fsync runs in a worker thread so the
+                # event loop never waits on disk.
+                await asyncio.to_thread(wal.flush)
             batch_size = max(1, runtime.current_settings().usage_sink_batch)
             while True:
                 batch = wal.take_pending(batch_size)
