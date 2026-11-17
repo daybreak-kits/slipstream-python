@@ -29,6 +29,9 @@ class BodySnapshot:
     """Raw values captured while forwarding; rendered/redacted only on write."""
 
     request_body: Any = None
+    # upstream_body 可为 dict（dict 路径的规范化重建）或 bytes（P2 快路径下
+    # 与 httpx 请求共享同一对象的改写后原始请求体，零拷贝）——render_value
+    # 的 bytes 分支解码后走与 str 相同的 redact_text+truncate 路径。
     upstream_body: Any = None
     response_body: Any = None
     response_summary: Any = None
@@ -90,6 +93,12 @@ def render_value(value: Any, limit_bytes: int) -> str | None:
         return None
     if limit_bytes <= 0:
         return ""
+    if isinstance(value, bytes):
+        # P2 快路径：upstream_body 以改写后 bytes 快照持有（与 httpx 请求
+        # 共享同一对象，不再为此解码出一份长寿命 str）；渲染时解码进 str
+        # 路径，与 str 输入同一套 redact_text+truncate。非 utf-8 字节以
+        # 替换字符呈现。
+        return render_value(value.decode("utf-8", "replace"), limit_bytes)
     if isinstance(value, str):
         text = redact_text(_bound_text(value, limit_bytes))
     else:

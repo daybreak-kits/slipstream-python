@@ -183,6 +183,103 @@ def build_request_body(channel: orm.ChannelORM, upstream_model: str, body: dict[
     return merged
 
 
+# 请求侧字节快路径的模型 needle：带键名前缀引号，与 ADR-078 同一安全论证——
+# JSON 字符串内部的引号必被转义，未转义的 '"model":"' 序列只可能出现在
+# 结构位，不会误伤消息文本。
+_MODEL_NEEDLE_PREFIX = b'"model":"'
+
+
+def fast_forward_content(
+    channel: orm.ChannelORM,
+    raw_body: bytes,
+    body: dict[str, Any],
+    *,
+    requested_model: str,
+    upstream_model: str,
+    prepared: Any = None,
+) -> bytes | None:
+    """无改写渠道的请求侧字节快路径（P2）：客户端原始 bytes 直接作为上游请求体。
+
+    语义基线是 :func:`build_request_body`（docs/upstream_transport.md §2）：
+    强制 model=upstream_model、messages 缺省补 []、剥离值为 None 的键、
+    stream 请求 setdefault stream_options.include_usage=true。本函数在字节域
+    复刻同一语义：上游收到的字节 = 客户端字节，仅 model 值被替换、stream
+    请求在最后一个非空白字节（必须是 }，保留尾部空白）前注入
+    `,"stream_options":{"include_usage":true}`。
+
+    资格条件（全部满足才返回改写后 bytes；任何一条不满足返回 None，调用方
+    回退 dict 路径——回退路径与今天逐字节一致，宁可慢不可错）：
+
+    1. httpx 臂（``_use_litellm`` 为假）：litellm 臂从 dict 构造请求，字节域
+       无法替代；
+    2. ``prepared.no_body_rules``：渠道没有 request_body 改写规则。标记在
+       prepare_request 内随规则解析顺带产出，不额外 json.loads 规则；header
+       规则不碰 body，不影响资格；
+    3. bytes 不含 b"null"：保守复刻 None 剥离语义（null 也可能出现在嵌套
+       结构或字符串里，出现即回退，安全性优先）；
+    4. model needle：宽松正则 '"model"\\s*:\\s*"<requested>"' 全文恰好命中
+       一次，且紧凑 needle '"model":"<requested>"' 命中。恰好一次是关键——
+       顶层 model 键在任何拼写下都贡献恰好一次命中，命中数 >1 说明嵌套
+       对象里还有同值 model（bytes.replace 会误伤嵌套数据），命中数 =1 但
+       紧凑 needle 不命中说明顶层是非紧凑拼写（替换点不确定），都回退；
+       另外 upstream_model 含引号/反斜杠/控制字符时回退（dict 路径会转义，
+       字节域注入会产生非法 JSON）；
+    5. stream 请求（body["stream"] is True）：bytes 无 '"stream_options"'
+       needle（顶层已有值时 setdefault 尊重调用方的语义在字节域难廉价判定，
+       回退）；body["stream"] truthy 但非 True 的怪值（如 1）回退——dict
+       路径会强制 stream=True，字节域不等价。messages 缺失的场景无需字节层
+       处理：_validate_body 已在 dict 层拒绝无 messages 的请求。
+
+    needle 替换不按 (requested_model, upstream_model) 缓存：重试/候选切换时
+    每个候选的 upstream_model 不同，逐请求计算即可（C 级 replace，成本可忽略）。
+    """
+    if prepared is not None and not getattr(prepared, "no_body_rules", False):
+        return None
+    if _use_litellm(channel):
+        return None
+    if raw_body.startswith(b"\xef\xbb\xbf") or raw_body.find(b"null") >= 0:
+        # BOM 前缀：json.loads 能解析但上游多半不能，dict 路径发的是净 JSON。
+        return None
+    stream_value = body.get("stream")
+    inject_usage = False
+    if stream_value is True:
+        if raw_body.find(b'"stream_options"') >= 0:
+            return None
+        inject_usage = True
+    elif stream_value:
+        # truthy 非 true：dict 路径会强制 stream=True，字节域不等价。
+        return None
+    requested_bytes = requested_model.encode("utf-8")
+    loose_needle = re.compile(rb'"model"\s*:\s*"' + re.escape(requested_bytes) + rb'"')
+    if len(loose_needle.findall(raw_body)) != 1:
+        return None
+    model_needle = _MODEL_NEEDLE_PREFIX + requested_bytes + b'"'
+    if raw_body.find(model_needle) < 0:
+        return None
+    if requested_model == upstream_model:
+        content = raw_body
+    else:
+        upstream_bytes = upstream_model.encode("utf-8")
+        if (
+            b'"' in upstream_bytes
+            or b"\\" in upstream_bytes
+            or any(byte < 0x20 or byte == 0x7F for byte in upstream_bytes)
+        ):
+            return None
+        content = raw_body.replace(model_needle, _MODEL_NEEDLE_PREFIX + upstream_bytes + b'"')
+    if inject_usage:
+        trimmed = content.rstrip()
+        if not trimmed.endswith(b"}"):
+            return None
+        content = (
+            trimmed[:-1]
+            + b',"stream_options":{"include_usage":true}'
+            + b"}"
+            + content[len(trimmed) :]
+        )
+    return content
+
+
 def _sanitize_client_message(value: str) -> str:
     """Return a bounded, credential-masked form safe to send to a client."""
     text = _BEARER_TOKEN_RE.sub("Bearer ***", value)
@@ -1150,13 +1247,17 @@ async def complete(
     request_id: str,
     prepared: Any = None,
     upstream_timeouts: UpstreamTimeouts | None = None,
+    upstream_content: bytes | None = None,
 ) -> tuple[dict[str, Any], Usage, int, dict[str, str]]:
     if _use_litellm(channel):
+        # 快路径 bytes 只对 httpx 臂有意义；litellm 臂恒走 dict 构造
+        #（fast_forward_content 对 litellm 渠道返回 None，双保险）。
         return await _litellm_complete(
             channel, upstream_model, body, timeout_s, request_id, prepared, upstream_timeouts
         )
     return await _httpx_complete(
-        channel, upstream_model, body, timeout_s, request_id, prepared, upstream_timeouts
+        channel, upstream_model, body, timeout_s, request_id, prepared, upstream_timeouts,
+        upstream_content,
     )
 
 
@@ -1216,17 +1317,24 @@ async def _httpx_complete(
     request_id: str,
     prepared: Any,
     upstream_timeouts: UpstreamTimeouts | None = None,
+    upstream_content: bytes | None = None,
 ) -> tuple[dict[str, Any], Usage, int, dict[str, str]]:
     started = time.perf_counter()
     total_s, _first_byte, _read = _http_timeouts(float(timeout_s))
     url = build_chat_url(channel.connection_url)
     headers = prepared.headers if prepared is not None else build_headers(channel, request_id)
     rewritten = prepared.body if prepared is not None else body
-    try:
+    if upstream_content is not None:
+        # P2 快路径：调用方已按 candidate 算好改写后 bytes（fast_forward_content），
+        # 直接交给 httpx content=，跳过 dict→重建 dict→编码。headers/URL/超时/
+        # 错误分类与 dict 路径完全一致；Content-Length 由 httpx 从 bytes 计算。
+        content = upstream_content
+    else:
         # 预编码一次（orjson，compact bytes）再交给 httpx：json= 会让 httpx 内部
         # 再走一遍 stdlib json.dumps，200KB 级请求体在膝点处占主循环 ~8% CPU
         #（py-spy 304 QPS 归因）；build_headers 已固定 content-type。
         content = jsonfast.dumps_compact(build_request_body(channel, upstream_model, rewritten))
+    try:
         response = await _get_client().post(
             url,
             headers=headers,
@@ -1255,6 +1363,42 @@ async def _httpx_complete(
 # ---------------------------------------------------------------------------
 # Streaming transport
 # ---------------------------------------------------------------------------
+
+# 流式跟踪字节门的 needle 集合（P2）：_track_line 对一帧的全部副作用只读这些
+# 字段，帧载荷不含任一 needle 时与「解析后无副作用」等价，可跳过解析
+# （keep-alive / 纯 role 帧不再逐帧 json.loads）。集合来源核对（gateway.py）：
+#   _track_line 本体读  id / error / usage / finish_reason；
+#   meaningful_delta    读 content / reasoning_content / reasoning / tool_calls；
+#   has_answer_surface  额外读 function_call——reasoning-only 帧同时带
+#                       function_call 时仍要置 first_answer_at（TTFA）；
+#   _track_delta        读 content / reasoning_content / reasoning。
+# 没有第六种触发字段：delta.role 等其余字段无任何消费者。needle 带键名前缀
+# 引号（"reasoning / "tool_calls / "function_call 不带收口引号，同时覆盖
+# _content 变体），转义安全论证同 ADR-078：字符串内部引号必被转义，未转义
+# 序列只可能是结构位。"id" 是条件 needle：response_id 采到后不再为 id 解析。
+# 代价：上游若用 \uXXXX 转义拼写键名（正常编码器不会），该帧被跳过——与
+# ADR-078 接受的 needle miss 同级；usage/finish/content 的漏解析只发生在
+# 这种非常规上游，属有意接受的有界风险。
+_TRACK_NEEDLES_BYTES: tuple[bytes, ...] = (
+    b'"usage"',
+    b'"error"',
+    b'"finish_reason"',
+    b'"content"',
+    b'"reasoning',
+    b'"tool_calls',
+    b'"function_call',
+)
+_TRACK_NEEDLES_TEXT: tuple[str, ...] = (
+    '"usage"',
+    '"error"',
+    '"finish_reason"',
+    '"content"',
+    '"reasoning',
+    '"tool_calls',
+    '"function_call',
+)
+_ID_NEEDLE_BYTES = b'"id"'
+_ID_NEEDLE_TEXT = '"id"'
 
 
 class UpstreamStream:
@@ -1549,6 +1693,23 @@ class UpstreamStream:
                 retryable=False,
             )
 
+    def _frame_may_matter(self, data: bytes | str) -> bool:
+        """字节门：帧载荷不含任何触发 needle 时返回 False（跳过解析）。
+
+        needle 集合与来源见模块级 _TRACK_NEEDLES_* 的注释；"id" 仅在
+        response_id 还没采到时才算命中——采到后不再为 id 解析。批量路径
+        （bytes）用 bytes.find（memchr），逐行路径用 str.find。
+        """
+        if isinstance(data, bytes):
+            for needle in _TRACK_NEEDLES_BYTES:
+                if data.find(needle) >= 0:
+                    return True
+            return not self.response_id and data.find(_ID_NEEDLE_BYTES) >= 0
+        for needle in _TRACK_NEEDLES_TEXT:
+            if data.find(needle) >= 0:
+                return True
+        return not self.response_id and data.find(_ID_NEEDLE_TEXT) >= 0
+
     def _track_line(self, line: str | bytes) -> dict[str, Any] | None:
         """单行 SSE 跟踪：[DONE] / error / usage / finish_reason / 内容统计。
 
@@ -1557,6 +1718,9 @@ class UpstreamStream:
         供逐行改写复用，避免同一帧被 json.loads 两次。
         接受 str（aiter_lines 逐行路径）或 bytes（字节块路径直进解析器，
         省掉每帧 decode）。
+        解析前先过字节门（_frame_may_matter）：不含任何触发 needle 的帧直接
+        返回 None，与今天「解析后无副作用」的帧等价；改写路径拿到 None 后由
+        rewrite_line 自己兜底 json.loads，语义不丢。
         """
         if isinstance(line, bytes):
             if not line.startswith(b"data:"):
@@ -1572,6 +1736,8 @@ class UpstreamStream:
             if data == "[DONE]":
                 self.saw_done = True
                 return None
+        if not self._frame_may_matter(data):
+            return None
         try:
             payload = jsonfast.loads(data)
         except Exception:
@@ -2111,13 +2277,16 @@ async def open_stream(
     request_id: str,
     prepared: Any = None,
     upstream_timeouts: UpstreamTimeouts | None = None,
+    upstream_content: bytes | None = None,
 ):
     if _use_litellm(channel):
+        # 快路径 bytes 只对 httpx 臂有意义；litellm 臂恒走 dict 构造。
         return await _litellm_open_stream(
             channel, upstream_model, body, public_name, timeout_s, request_id, prepared, upstream_timeouts
         )
     return await _httpx_open_stream(
-        channel, upstream_model, body, public_name, timeout_s, request_id, prepared, upstream_timeouts
+        channel, upstream_model, body, public_name, timeout_s, request_id, prepared, upstream_timeouts,
+        upstream_content,
     )
 
 
@@ -2195,11 +2364,21 @@ async def _httpx_open_stream(
     request_id: str,
     prepared: Any,
     upstream_timeouts: UpstreamTimeouts | None = None,
+    upstream_content: bytes | None = None,
 ):
     first_byte_s, read_s = _stream_timeouts(float(timeout_s), upstream_timeouts)
     url = build_chat_url(channel.connection_url)
     headers = prepared.headers if prepared is not None else build_headers(channel, request_id)
     rewritten = prepared.body if prepared is not None else body
+    if upstream_content is not None:
+        # P2 快路径：见 _httpx_complete 的同名注释。bytes 存活到上游调用完成
+        # 后随引用链释放（httpx request 持有它直到流 close()，与今天的编码体
+        # 同一生命周期）；流式首字节后调用方局部引用即已解除。
+        content = upstream_content
+    else:
+        content = jsonfast.dumps_compact(
+            build_request_body(channel, upstream_model, {**rewritten, "stream": True})
+        )
     client = _get_client()
     response: httpx.Response | None = None
     try:
@@ -2209,9 +2388,7 @@ async def _httpx_open_stream(
             headers=headers,
             # 预编码一次（orjson）：见 _httpx_complete 的同名注释；memray 归因
             # 里这份编码体还是重载流 RSS 的最大单件（1.2MB/流）。
-            content=jsonfast.dumps_compact(
-                build_request_body(channel, upstream_model, {**rewritten, "stream": True})
-            ),
+            content=content,
             timeout=_stream_client_timeout(get_settings(), read_s, upstream_timeouts),
         )
         response = await client.send(request, stream=True)

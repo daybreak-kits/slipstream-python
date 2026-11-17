@@ -19,7 +19,9 @@ import pytest
 
 from l01_core.errors import ErrorCode
 from l05_service import chat as chat_service
+from l05_service.body_logging import render_value
 from l05_service.llm import gateway
+from l05_service.rewrite import prepare_request
 from l05_service.upstream_settings import UpstreamTimeouts
 
 # ---------------------------------------------------------------------------
@@ -1082,3 +1084,357 @@ def test_relay_text_cap_limits_buffer():
     stream._relay_text_chars = gateway.UpstreamStream._RELAY_TEXT_CAP
     stream._stash_relay_text("c")
     assert stream.relay_text == "a" * 10 + "b" * 10
+
+
+# ---------------------------------------------------------------------------
+# P2 请求侧字节快路径（fast_forward_content）
+# ---------------------------------------------------------------------------
+
+
+def _ff(monkeypatch, raw: bytes, body: dict, **kw: Any):
+    """fast_forward_content 的直调替身：httpx 臂判定需要 get_settings 打桩。"""
+    monkeypatch.setattr(gateway, "get_settings", lambda: _settings(**kw.pop("settings", {})))
+    return gateway.fast_forward_content(
+        _channel(),
+        raw,
+        body,
+        requested_model=kw.get("requested_model", "public-x"),
+        upstream_model=kw.get("upstream_model", "upstream-x"),
+        prepared=kw.get("prepared", _prepared(no_body_rules=True)),
+    )
+
+
+def _rule_channel(rules: dict) -> SimpleNamespace:
+    """prepare_request 可直接消费的最小渠道替身（无 key、无 ORM 关系）。"""
+    return SimpleNamespace(
+        rewrite_rules_json=json.dumps(rules),
+        auth_style="bearer",
+        api_key_enc="",
+        keys=None,
+    )
+
+
+def _compact_body(model: str = "public-x", **extra: Any) -> bytes:
+    payload = {"model": model, "messages": [{"role": "user", "content": "hi"}]}
+    payload.update(extra)
+    return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+
+def test_prepare_request_flags_channels_without_body_rules():
+    """契约：no_body_rules 只由 request_body 规则节决定；header 规则不碰 body
+    不影响资格（rewrite.prepare_request 顺带产出，不额外解析规则）。"""
+    body = {"model": "public-x", "messages": [{"role": "user", "content": "hi"}]}
+    kwargs = {"upstream_model": "upstream-x", "requested_model": "public-x", "request_id": "r"}
+    assert prepare_request(_rule_channel({}), body, **kwargs).no_body_rules is True
+    header_only = prepare_request(
+        _rule_channel({"request_headers": [{"mode": "set", "path": "x-a", "value": "b"}]}),
+        body,
+        **kwargs,
+    )
+    assert header_only.no_body_rules is True
+    assert header_only.applied is True  # header 改写照常生效
+    assert prepare_request(
+        _rule_channel({"request_body": [{"mode": "update", "path": "temperature", "value": 0}]}),
+        body,
+        **kwargs,
+    ).no_body_rules is False
+
+
+async def test_fast_path_sends_client_bytes_with_only_model_replaced(monkeypatch):
+    """契约 P2：快路径命中时上游收到的字节 = 客户端字节仅 model 被改
+    （MockTransport 检查 request.content）；headers/content-type 照旧。"""
+    raw = _compact_body()
+    body = json.loads(raw)
+    content = _ff(monkeypatch, raw, body)
+    assert content == raw.replace(b'"model":"public-x"', b'"model":"upstream-x"')
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["content"] = request.content
+        seen["headers"] = dict(request.headers)
+        return httpx.Response(200, json={"choices": [{"index": 0, "message": {"content": "hi"}}]})
+
+    async with _upstream(monkeypatch, handler):
+        await gateway._httpx_complete(
+            _channel(),
+            "upstream-x",
+            body,
+            30,
+            "req_test",
+            _prepared(no_body_rules=True),
+            upstream_content=content,
+        )
+    assert seen["content"] == content
+    assert seen["headers"]["content-type"] == "application/json"
+
+
+async def test_fast_path_identity_models_reuse_client_bytes(monkeypatch):
+    """契约 P2：requested == upstream 时零替换，返回客户端 bytes 本身（零拷贝）。"""
+    raw = _compact_body(model="upstream-x")
+    content = _ff(
+        monkeypatch,
+        raw,
+        json.loads(raw),
+        requested_model="upstream-x",
+        upstream_model="upstream-x",
+    )
+    assert content is raw
+
+
+async def test_fast_path_falls_back_when_model_needle_missing(monkeypatch):
+    """契约 P2：needle 未命中（带空格 / 转义 / BOM）一律回退 dict 路径。"""
+    spaced = b'{"model": "public-x", "messages": [{"role": "user", "content": "hi"}]}'
+    assert _ff(monkeypatch, spaced, json.loads(spaced)) is None
+    # 客户端用 \uXXXX 转义写 model 值：宽松正则与紧凑 needle 都不命中
+    escaped = (
+        b'{"model":"public-\\u0078","messages": [{"role": "user", "content": "hi"}]}'
+    )
+    assert _ff(monkeypatch, escaped, json.loads(escaped)) is None
+    bom = b"\xef\xbb\xbf" + _compact_body()
+    assert _ff(monkeypatch, bom, json.loads(bom.decode("utf-8-sig"))) is None
+
+
+async def test_fast_path_falls_back_when_nested_model_shares_value(monkeypatch):
+    """契约 P2：嵌套对象里出现同值 model 键时，bytes.replace 会误伤嵌套数据，
+    宽松正则命中数 >1 必须回退（宁可慢不可错）。"""
+    raw = _compact_body(metadata={"model": "public-x"})
+    assert _ff(monkeypatch, raw, json.loads(raw)) is None
+    # 顶层带空格 + 嵌套紧凑：命中数同样 >1
+    raw2 = b'{"model": "public-x", "messages": [{"role": "user", "content": "hi"}], "meta": {"model":"public-x"}}'
+    assert _ff(monkeypatch, raw2, json.loads(raw2)) is None
+
+
+async def test_fast_path_falls_back_on_null_bytes(monkeypatch):
+    """契约 P2：bytes 含 null（顶层 None 值或字符串字样）即回退，保守复刻
+    build_request_body 的 None 剥离语义。"""
+    raw = _compact_body(temperature=None)
+    assert _ff(monkeypatch, raw, json.loads(raw)) is None
+    raw2 = _compact_body()
+    raw2 = raw2.replace(b'"content":"hi"', b'"content":"null island"')
+    assert _ff(monkeypatch, raw2, json.loads(raw2)) is None
+
+
+async def test_fast_path_falls_back_when_body_rules_present(monkeypatch):
+    """契约 P2：渠道有 request_body 改写规则（prepared 无资格标记）时回退。"""
+    raw = _compact_body()
+    body = json.loads(raw)
+    assert _ff(monkeypatch, raw, body, prepared=_prepared()) is None
+    assert _ff(monkeypatch, raw, body, prepared=_prepared(no_body_rules=False)) is None
+
+
+async def test_fast_path_falls_back_when_stream_options_present(monkeypatch):
+    """契约 P2：stream 请求 bytes 已含 stream_options 时回退——setdefault
+    尊重调用方已有值的语义在字节域难廉价判定。"""
+    raw = _compact_body(stream=True, stream_options={"include_usage": False})
+    assert _ff(monkeypatch, raw, json.loads(raw)) is None
+
+
+async def test_fast_path_falls_back_on_truthy_non_bool_stream(monkeypatch):
+    """契约 P2：body["stream"] truthy 但非 True（如 1）回退——dict 路径会
+    强制 stream=True，字节域不等价。"""
+    raw = _compact_body(stream=1)
+    assert _ff(monkeypatch, raw, {"stream": 1, "messages": [{"role": "user", "content": "hi"}], "model": "public-x"}) is None
+
+
+async def test_fast_path_injects_stream_options_before_trailing_whitespace(monkeypatch):
+    """契约 P2：stream 请求注入 ,"stream_options":{"include_usage":true}
+    在最后一个非空白字节（必须是 }）前，尾部空白逐字节保留。"""
+    compact = _compact_body(stream=True)
+    replaced = compact.replace(b'"model":"public-x"', b'"model":"upstream-x"')
+    content = _ff(monkeypatch, compact, json.loads(compact))
+    assert content == replaced[:-1] + b',"stream_options":{"include_usage":true}}'
+    assert json.loads(content)["stream_options"] == {"include_usage": True}
+    # 尾部空白形态：注入点在 } 前，空白原样保留
+    padded = compact + b"  \n"
+    content2 = _ff(monkeypatch, padded, json.loads(padded))
+    assert content2 == replaced[:-1] + b',"stream_options":{"include_usage":true}}' + b"  \n"
+    json.loads(content2)  # 仍是合法 JSON
+
+
+async def test_fast_path_falls_back_on_litellm_transport(monkeypatch):
+    """契约 P2：litellm 臂从 dict 构造请求，快路径对它无意义，必须回退。"""
+    raw = _compact_body()
+    content = _ff(monkeypatch, raw, json.loads(raw), settings={"upstream_transport": "litellm"})
+    assert content is None
+
+
+async def test_open_stream_fast_path_sends_injected_stream_options(monkeypatch):
+    """契约 P2：流式快路径——上游收到注入后的客户端字节，prime 正常。"""
+    raw = _compact_body(stream=True)
+    body = json.loads(raw)
+    content = _ff(monkeypatch, raw, body)
+    assert b'"stream_options":{"include_usage":true}' in content
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["content"] = request.content
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=(
+                b'data: {"id":"c1","choices":[{"index":0,"delta":{"content":"hi"}}]}\n\n'
+                b"data: [DONE]\n\n"
+            ),
+        )
+
+    async with _upstream(monkeypatch, handler):
+        stream = await gateway._httpx_open_stream(
+            _channel(),
+            "upstream-x",
+            body,
+            "public-x",
+            30,
+            "req_test",
+            _prepared(no_body_rules=True),
+            upstream_content=content,
+        )
+        assert stream.got_content is True
+        await stream.close()
+    assert seen["content"] == content
+    assert json.loads(seen["content"].decode())["stream_options"] == {"include_usage": True}
+
+
+async def test_dict_path_unchanged_without_upstream_content(monkeypatch):
+    """契约 P2：不传 upstream_content 时回退路径与今天逐字节一致（compact 编码）。"""
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"choices": [{"index": 0, "message": {"content": "hi"}}]})
+
+    async with _upstream(monkeypatch, handler):
+        await gateway._httpx_complete(
+            _channel(),
+            "upstream-x",
+            {"messages": [{"role": "user", "content": "hi"}], "temperature": None},
+            30,
+            "req_test",
+            _prepared(),
+        )
+    assert seen["body"]["model"] == "upstream-x"
+    assert "temperature" not in seen["body"]
+
+
+# ---------------------------------------------------------------------------
+# P2 流式跟踪字节门（_track_line 前置 needle 检查）
+# ---------------------------------------------------------------------------
+
+
+def _counting_loads(monkeypatch) -> list[str]:
+    """给 gateway.jsonfast.loads 套计数桩，返回解析过的帧列表。"""
+    parsed: list[str] = []
+    real_loads = gateway.jsonfast.loads
+
+    def counting(value: Any) -> Any:
+        parsed.append(value.decode("utf-8", "replace") if isinstance(value, bytes) else value)
+        return real_loads(value)
+
+    monkeypatch.setattr(gateway.jsonfast, "loads", counting)
+    return parsed
+
+
+async def test_track_line_gate_skips_frames_without_trigger_fields(monkeypatch):
+    """契约 P2 字节门：纯 role 帧 / keep-alive 注释行不解析（零解析调用）；
+    含 content / usage / error 的帧照常解析且语义不变。"""
+    parsed = _counting_loads(monkeypatch)
+    stream = _slow_stream([], 0.0)
+    role_line = 'data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}'
+    assert stream._track_line(role_line) is None
+    assert stream._track_line(b'data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}') is None
+    assert stream._track_line(": ping") is None  # 注释行本来就不解析
+    assert stream._track_line("event: keepalive") is None
+    assert parsed == []
+    content_line = 'data: {"id":"c1","choices":[{"index":0,"delta":{"content":"hi"}}]}'
+    payload = stream._track_line(content_line)
+    assert payload is not None and payload["id"] == "c1"
+    assert stream.got_content is True
+    usage_line = 'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}'
+    assert stream._track_line(usage_line) is not None
+    assert stream.usage.total_tokens == 3
+    assert stream.usage_from_upstream is True
+    assert len(parsed) == 2  # 只有 content / usage 两帧进了解析器
+    with pytest.raises(gateway.LLMError):
+        stream._track_line('data: {"error":{"message":"boom"}}')
+    await stream.close()
+
+
+async def test_track_line_id_needle_only_counts_before_response_id_captured(monkeypatch):
+    """契约 P2 字节门："id" 是条件 needle——response_id 采到后不再为 id 解析。"""
+    parsed = _counting_loads(monkeypatch)
+    stream = _slow_stream([], 0.0)
+    assert stream._track_line('data: {"id":"c2"}') is not None
+    assert stream.response_id == "c2"
+    # 采到之后：仅含 "id" 的帧跳过解析，response_id 不被改写
+    assert stream._track_line('data: {"id":"c3"}') is None
+    assert stream.response_id == "c2"
+    assert len(parsed) == 1
+    await stream.close()
+
+
+async def test_line_rewrite_falls_back_to_rewrite_line_on_gate_skipped_frames(monkeypatch):
+    """契约 P2 字节门：逐行改写路径消费 _track_line 返回 payload——跳解析帧
+    返回 None 后 rewrite_line 自己兜底 json.loads，改写语义不丢。"""
+    parsed = _counting_loads(monkeypatch)
+    lines = [
+        'data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"content":"hi"}}]}',
+        "",
+        # role-only 且 model 带空格：字节门跳过跟踪，rename needle 也不命中
+        'data: {"model": "m", "choices": [{"index": 0, "delta": {"role": "assistant"}}]}',
+        "",
+        'data: {"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+        "",
+        "data: [DONE]",
+    ]
+    stream = _slow_stream(lines, 0.0)
+    await stream.prime()  # 首帧进 prefetched（prime 用 stdlib json.loads，不入计数）
+    out = [line async for line in stream.iter_sse()]
+    await stream.close()
+    # 跳解析帧仍被改写成对外名 p（rewrite_line 兜底），delta 原样保留
+    assert '"model": "p"' in out[2]
+    rewritten = json.loads(out[2][len("data: ") :])
+    assert rewritten["choices"][0]["delta"] == {"role": "assistant"}
+    # 有 needle 的帧照常跟踪
+    assert stream.finish_reason == "stop"
+    assert stream.saw_done is True
+    # 只有 finish 帧进 jsonfast 解析器（首帧由 prime 消费后从 prefetched 改写、
+    # role 帧被字节门跳过、空行与 [DONE] 本来就不解析）
+    assert len(parsed) == 1
+    assert "finish_reason" in parsed[0]
+
+
+async def test_rewrite_raw_block_skipped_frames_still_rewrite_or_rename():
+    """契约 P2 字节门（字节块路径）：rename needle 命中的帧字节域改名不走解析；
+    未命中的跳解析帧由 rewrite_line 兜底改写。"""
+    stream = _slow_stream([], 0.0)
+    renamed = (
+        b'data: {"model":"m","choices":[{"index":0,"delta":{"role":"assistant"}}]}\n'
+        b"\n"
+    )
+    out, err = stream._rewrite_raw_block(renamed)
+    assert err is None
+    assert out == renamed.replace(b'"model":"m"', b'"model":"p"')
+    spaced = (
+        b'data: {"model": "m", "choices": [{"index": 0, "delta": {"role": "assistant"}}]}\n'
+        b"\n"
+    )
+    out2, err2 = stream._rewrite_raw_block(spaced)
+    assert err2 is None
+    assert b'"model": "p"' in out2
+    assert json.loads(out2.decode().split("data: ", 1)[1].strip())["choices"][0]["delta"] == {
+        "role": "assistant"
+    }
+    await stream.close()
+
+
+def test_render_value_handles_bytes_snapshot():
+    """契约 P2：快路径快照以 bytes 持有（与 httpx 请求共享对象）——渲染时
+    解码进与 str 相同的 redact_text+truncate 路径，凭证键照常打码。"""
+    raw = b'{"model":"upstream-x","messages":[{"role":"user","content":"hi"}]}'
+    assert render_value(raw, 16 * 1024) == raw.decode()
+    secret = b'{"api_key":"sk-secret-value","model":"m"}'
+    assert "sk-secret-value" not in render_value(secret, 16 * 1024)
+    assert "***" in render_value(secret, 16 * 1024)
+    big = "x" * (20 * 1024)
+    rendered = render_value(big.encode(), 16 * 1024)
+    assert len(rendered.encode("utf-8")) <= 16 * 1024
+    assert rendered.endswith("[truncated]")

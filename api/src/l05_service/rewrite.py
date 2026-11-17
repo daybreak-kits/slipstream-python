@@ -43,6 +43,10 @@ class PreparedRequest:
     changes: list[dict[str, Any]] = field(default_factory=list)
     header_changes: list[str] = field(default_factory=list)
     rule_results: list[dict[str, Any]] = field(default_factory=list)
+    # P2 字节快路径的渠道侧资格标记：本渠道没有 request_body 改写规则。
+    # 在 prepare_request 里随规则解析顺带产出（不额外 json.loads），供
+    # gateway.fast_forward_content 判定；header 规则不碰 body，不影响资格。
+    no_body_rules: bool = False
 
     @property
     def diff(self) -> dict[str, Any]:
@@ -246,6 +250,7 @@ def prepare_request(
         changes=changes,
         header_changes=header_changes,
         rule_results=rule_results,
+        no_body_rules=not bool(request_body_rules),
     )
 
 

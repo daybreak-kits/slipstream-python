@@ -61,12 +61,18 @@ def _invalid_body_error(errors: list[dict[str, Any]], body: bytes) -> RequestVal
     return RequestValidationError(errors, body=body)
 
 
-async def _read_json_body(request: Request) -> dict[str, Any]:
+async def _read_json_body(request: Request) -> tuple[dict[str, Any], bytes]:
     """显式读请求体并解析 JSON；Content-Length 超限在读之前短路 413。
 
     取代 Body(...) 的隐式全量解析：Starlette 在参数校验阶段就读完请求体，
     超大请求不受 max_body_bytes 约束且解析完才被拒。Content-Length 是客户
     端自报的（chunked 等场景缺失），缺失时读完按实际长度兜底。
+
+    返回 (解析后的 dict, 原始 bytes)：P2 字节快路径把原始 bytes 作为上游
+    请求体直接转发（仅字节级 model 替换，fast_forward_content 判定资格），
+    其存活期由调用链管理——上游调用完成后随局部引用释放（流式在首字节后
+    即解除）；日志快照照旧持有解析后的 dict。Starlette 的缓存副本照旧在
+    解析完成后置空（P1.5 的内存修复，语义不变）。
     """
     limit = int(request.app.state.settings.max_body_bytes)
     declared = request.headers.get("content-length")
@@ -109,11 +115,10 @@ async def _read_json_body(request: Request) -> dict[str, Any]:
             ],
             body,
         )
-    # 解析完成后释放原始字节：Starlette 会把 body 缓存在 request._body 上，
-    # 流式中继期间（长流）这份 200KB-1.2MB 的原文随请求对象存活到流结束
-    #（memray 归因：160 条流 ≈ 105MB）。日志快照持有的是解析后的 dict。
+    # 解析完成后释放 Starlette 的缓存副本：request._body 置空后，原始 bytes
+    # 只被本函数的局部引用持有，交给快路径按需使用（v1.5 修复的语义保留）。
     request._body = b""
-    return parsed
+    return parsed, body
 
 
 @router.post("/chat/completions")
@@ -129,7 +134,7 @@ async def chat_completions(
     # 来源地址与原始请求头一起进入请求日志（转发头由 request_meta 解析）。
     client_ip = request.client.host if request.client else ""
     request_headers = dict(request.headers)
-    body = await _read_json_body(request)
+    body, raw_body = await _read_json_body(request)
     if body.get("stream"):
         registry = getattr(request.app.state, "stream_registry", None)
         # Everything until StreamingResponse owns the stream sits inside one
@@ -151,6 +156,7 @@ async def chat_completions(
                 session_factory=request.app.state.session_factory,
                 client_ip=client_ip,
                 request_headers=request_headers,
+                raw_body=raw_body,
             )
             # The SSE body can outlive this request scope. Release the pooled DB
             # connection now instead of holding it for the whole stream.
@@ -196,6 +202,7 @@ async def chat_completions(
         session_factory=request.app.state.session_factory,
         client_ip=client_ip,
         request_headers=request_headers,
+        raw_body=raw_body,
     )
     # Upstream response headers are relayed as-is (framing already stripped by
     # prepare_response); the gateway owns its request id.

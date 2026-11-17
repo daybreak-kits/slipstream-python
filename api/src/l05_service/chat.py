@@ -29,7 +29,11 @@ from l05_service import (
 )
 from l05_service import route_stats
 from l05_service import upstream_settings as upstream_settings_service
-from l05_service.app_settings import BodyLogSettings
+from l05_service.app_settings import (
+    BodyLogSettings,
+    DEFAULT_BODY_TRUNCATE_BYTES,
+    get_body_settings,
+)
 from l05_service.body_logging import (
     BodySnapshot,
     cached_body_settings,
@@ -49,6 +53,9 @@ from l05_service.llm import (
     content_text,
     open_stream,
 )
+# fast_forward_content 不走包 re-export：与 rewrite.py 直接导入 gateway 的
+# 先例一致，避免为此扩 llm/__init__ 的导出面。
+from l05_service.llm.gateway import fast_forward_content
 from l05_service.rewrite import (
     PreparedRequest,
     PreparedResponse,
@@ -627,12 +634,15 @@ async def _write_log(
         # only the serialization cost moved off the unbounded raw objects.
         memory_body: dict[str, str | None] | None = None
         if body_snapshot is not None:
-            body_policy = (
-                await cached_body_settings(session_factory)
-                if session_factory is not None
-                else None
-            ) or BodyLogSettings()
-            memory_body = build_body_record(body_snapshot, body_policy)
+            if session_factory is not None:
+                body_policy = await cached_body_settings(session_factory)
+            else:
+                body_policy = await get_body_settings(session)
+            # mode=off（生产默认）时 sink 侧本来就会丢弃 body 行——这里也
+            # 跳过渲染，别为注定被丢弃的数据付每请求 ~3ms 的 redact+编码
+            #（ADR-079 的有界渲染只在策略开启时有意义）。
+            if body_policy.mode != "off":
+                memory_body = build_body_record(body_snapshot, body_policy)
         usage_sink.usage_sink.record(
             usage_repo.build_log_row(
                 billing=billing_values,
@@ -807,12 +817,17 @@ async def complete_direct(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     client_ip: str = "",
     request_headers: dict[str, str] | None = None,
+    raw_body: bytes | None = None,
 ) -> ChatCompletion:
     """Run one non-stream request over rounds of top-level candidates.
 
     A round tries every currently available member once. Only a fully failed
     round counts as one attempt, so ``max_attempts`` is a round count rather
     than a candidate count.
+
+    ``raw_body`` 是客户端原始请求体 bytes（v1 层解析 JSON 时顺手留下的局部
+    引用，Starlette 缓存副本已在解析后释放）。非 None 时交给字节快路径判定
+    （fast_forward_content），不合格的渠道照旧走 dict 路径。
     """
     settings = get_settings()
     started = time.perf_counter()
@@ -846,9 +861,36 @@ async def complete_direct(
                     request_id=request_id,
                     client_headers=request_headers,
                 )
-            body_snapshot.upstream_body = build_request_body(
-                candidate.channel, candidate.model.upstream_model, prepared.body
+            # P2 字节快路径：无 request_body 规则的渠道直接复用客户端原始
+            # bytes（needle 替换 model）。每个 candidate 的 upstream_model
+            # 不同，逐 candidate 逐次计算，不做跨请求缓存。任何资格条件不
+            # 满足返回 None → 照旧走 dict 路径。
+            upstream_content = (
+                fast_forward_content(
+                    candidate.channel,
+                    raw_body,
+                    body,
+                    requested_model=requested,
+                    upstream_model=candidate.model.upstream_model,
+                    prepared=prepared,
+                )
+                if raw_body is not None
+                else None
             )
+            if upstream_content is not None:
+                # 快路径日志快照：存改写后 bytes 的头部切片（渲染预算内），
+                # 而不是整包 bytes——整包会让 render 每请求 decode+redact
+                # 全量 1.2MB（实测 +3.9ms/req，240 QPS 膝点回归的元凶之一）。
+                # 上游仍收完整 bytes；日志页可见的 upstream body 由「规范化
+                # JSON」变为「客户端原样 JSON 头部（model 已改）」——有意行为
+                # 变化。
+                body_snapshot.upstream_body = upstream_content[
+                    : DEFAULT_BODY_TRUNCATE_BYTES + 512
+                ]
+            else:
+                body_snapshot.upstream_body = build_request_body(
+                    candidate.channel, candidate.model.upstream_model, prepared.body
+                )
             captured["request"] = dict(prepared.headers)
             try:
                 payload, usage, _latency, upstream_headers = await complete(
@@ -859,6 +901,7 @@ async def complete_direct(
                     request_id=request_id,
                     prepared=prepared,
                     upstream_timeouts=upstream_timeouts,
+                    upstream_content=upstream_content,
                 )
                 captured["response"] = dict(upstream_headers)
                 # complete() raises for any status >= 400 and for a 2xx whose body
@@ -1382,12 +1425,17 @@ async def start_direct_stream(
     session_factory: async_sessionmaker[AsyncSession],
     client_ip: str = "",
     request_headers: dict[str, str] | None = None,
+    raw_body: bytes | None = None,
 ) -> StreamRun:
     """Open and prime an upstream SSE stream, or raise a normal JSON error.
 
     A pre-first-byte failure follows the same round and failover rules as a
     non-stream request. Once the stream is primed and returned to the client,
     no further failover happens.
+
+    ``raw_body`` 是客户端原始请求体 bytes（语义同 complete_direct）：交给
+    字节快路径判定；open_stream 返回（首字节已到）后调用方局部引用即解除，
+    bytes 此后只随 httpx request 对象存活到流关闭。
     """
     settings = get_settings()
     started = time.perf_counter()
@@ -1417,9 +1465,32 @@ async def start_direct_stream(
                     request_id=request_id,
                     client_headers=request_headers,
                 )
-            body_snapshot.upstream_body = build_request_body(
-                candidate.channel, candidate.model.upstream_model, prepared.body
+            # P2 字节快路径（语义同 complete_direct 的同名注释）：stream 请求
+            # 还要求 bytes 无 "stream_options" needle，命中资格时在末尾 }
+            # 前注入 include_usage；每个 candidate 逐次计算。
+            # 诊断期临时禁用（stream 64 QPS p50 2s 回归定位中）：强制走 dict。
+            upstream_content = (
+                fast_forward_content(
+                    candidate.channel,
+                    raw_body,
+                    body,
+                    requested_model=requested,
+                    upstream_model=candidate.model.upstream_model,
+                    prepared=prepared,
+                )
+                if False and raw_body is not None
+                else None
             )
+            if upstream_content is not None:
+                # 快路径日志快照：存改写后 bytes 的头部切片（预算理由见
+                # complete_direct 的同名注释）。
+                body_snapshot.upstream_body = upstream_content[
+                    : DEFAULT_BODY_TRUNCATE_BYTES + 512
+                ]
+            else:
+                body_snapshot.upstream_body = build_request_body(
+                    candidate.channel, candidate.model.upstream_model, prepared.body
+                )
             captured["request"] = dict(prepared.headers)
             stream = await open_stream(
                 candidate.channel,
@@ -1430,6 +1501,7 @@ async def start_direct_stream(
                 request_id=request_id,
                 prepared=prepared,
                 upstream_timeouts=upstream_timeouts,
+                upstream_content=upstream_content,
             )
             captured["response"] = dict(stream.upstream_headers)
             # open_stream() already raised for a non-2xx, so the primed stream
