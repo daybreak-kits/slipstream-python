@@ -29,8 +29,11 @@ from l05_service import (
 )
 from l05_service import route_stats
 from l05_service import upstream_settings as upstream_settings_service
+from l05_service.app_settings import BodyLogSettings
 from l05_service.body_logging import (
     BodySnapshot,
+    cached_body_settings,
+    build_body_record,
     empty_stream_summary,
     extract_reasoning_content,
     stream_summary_payload,
@@ -617,6 +620,19 @@ async def _write_log(
         # ZS-1: the request only appends one complete row to the WAL; the
         # background sink batches it into request_logs. No statement runs here
         # and a broken sink can never fail the request.
+        # Body rows are rendered (redacted + bounded) BEFORE the WAL append:
+        # the raw snapshot can hold the full prompt twice, and dumping it
+        # verbatim used to dominate the per-request CPU on large bodies.
+        # The sink still replays capture policy (should_capture) downstream;
+        # only the serialization cost moved off the unbounded raw objects.
+        memory_body: dict[str, str | None] | None = None
+        if body_snapshot is not None:
+            body_policy = (
+                await cached_body_settings(session_factory)
+                if session_factory is not None
+                else None
+            ) or BodyLogSettings()
+            memory_body = build_body_record(body_snapshot, body_policy)
         usage_sink.usage_sink.record(
             usage_repo.build_log_row(
                 billing=billing_values,
@@ -624,17 +640,7 @@ async def _write_log(
                 client_ip=client_ip,
                 request_headers=request_headers,
             ),
-            body=(
-                {
-                    "request_body": body_snapshot.request_body,
-                    "upstream_body": body_snapshot.upstream_body,
-                    "response_body": body_snapshot.response_body,
-                    "response_summary": body_snapshot.response_summary,
-                    "reasoning_content": body_snapshot.reasoning_content,
-                }
-                if body_snapshot is not None
-                else None
-            ),
+            body=memory_body,
         )
         if log_pipeline.split_enabled():
             # LEDGER_SPLIT=on keeps billing the ledger: the charge appends to

@@ -53,14 +53,46 @@ def truncate_text(value: str, limit_bytes: int) -> str:
     return result
 
 
+def _bound_text(value: str, limit_bytes: int) -> str:
+    """按字符数预截断（先切后算，chars ≥ bytes 只会多切不会越界）。
+
+    终点仍有 truncate_text 做字节级精截；这里的目的只是把 redact/dumps
+    的工作量钉在预算附近，避免对 1.2MB 级正文全文跑正则与序列化。
+    """
+    if limit_bytes <= 0:
+        return ""
+    if len(value) <= limit_bytes:
+        return value
+    keep = max(0, limit_bytes - len(TRUNCATE_MARKER))
+    return value[:keep] + TRUNCATE_MARKER
+
+
+def _bound_deep(value: Any, limit_bytes: int) -> Any:
+    """递归预截断结构里的每个超长字符串；非字符串原样返回。"""
+    if isinstance(value, str):
+        return _bound_text(value, limit_bytes)
+    if isinstance(value, list):
+        return [_bound_deep(item, limit_bytes) for item in value]
+    if isinstance(value, dict):
+        return {key: _bound_deep(item, limit_bytes) for key, item in value.items()}
+    return value
+
+
 def render_value(value: Any, limit_bytes: int) -> str | None:
-    """Redact then JSON/text-serialize and truncate a captured value."""
+    """Redact then JSON/text-serialize and truncate a captured value.
+
+    结构与超长字符串先经 _bound_deep/_bound_text 预截断，redact 与序列化
+    只在界后负载上执行；输出与「全文处理后再截断」相比只有超大正文的
+    尾部内容不同（同样的截断标记、同样的字节上限）。
+    """
     if value is None:
         return None
+    if limit_bytes <= 0:
+        return ""
     if isinstance(value, str):
-        text = redact_text(value)
+        text = redact_text(_bound_text(value, limit_bytes))
     else:
-        text = json.dumps(redact(value), ensure_ascii=False)
+        text = json.dumps(redact(_bound_deep(value, limit_bytes)), ensure_ascii=False)
     return truncate_text(text, limit_bytes)
 
 
@@ -107,7 +139,7 @@ def invalidate_body_settings_cache() -> None:
     _body_settings_cache.clear()
 
 
-async def _cached_body_settings(
+async def cached_body_settings(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> BodyLogSettings:
     catalog = _body_catalogs.get(session_factory)
@@ -138,7 +170,7 @@ async def write_body_log(
     if snapshot is None:
         return False
     try:
-        policy = settings or await _cached_body_settings(session_factory)
+        policy = settings or await cached_body_settings(session_factory)
         if not should_capture(policy, http_status=http_status, error_code=error_code):
             return False
         async with session_factory() as session:
