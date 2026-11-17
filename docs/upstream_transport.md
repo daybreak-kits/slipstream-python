@@ -54,10 +54,14 @@
 - 构造 `UpstreamStream` 后立即 `prime()`，并受 `upstream_first_byte_timeout_s` 约束（默认 30s）；首字节超时抛 `timeout`，消息为“上游在 `{first_byte_s}` 秒内未返回首字节内容”。
 - prime 成功后才把流交给客户端；**prime 之后不再 failover**（`start_direct_stream`，`chat.py:1194`）。因此流式故障转移只覆盖“首字节前”。
 
-消费阶段（`UpstreamStream.iter_sse`）：
-- 逐行 `response.aiter_lines()`，不整段缓冲；`_next_line` 每次最多等 `read_timeout_s`（逐块读空闲看门狗）。流式**无总闸**（ADR-075）：观察器没有 deadline，等多久由客户端决定。
-- 识别并跟踪：`[DONE]`、`choices[0].delta` 的 content/reasoning/tool_calls、`finish_reason`、SSE `usage`、`response_id`、首内容/首答案/末 delta、`content_chars` 与 preview。
-- 输出重写：每行 `rewrite_line(line) + "\n"`，把上游 `data: {json}` 的 `model` 改成公开模型名，并合并 `sse_patch`；非 data 行原样透传。
+消费阶段（`UpstreamStream.iter_sse`，ADR-078）：
+- 三条转发路径，**转发粒度统一为网络块**（`aiter_bytes()` 无参——带 chunk_size 会让 httpx ByteChunker 吞掉流中途出错时的未满块前缀）：
+  - **直通块**：无 `sse_patch` 且 `public_name == upstream_model`，字节原样转发（`_passthrough_blocks`）；
+  - **改写块**（ADR-078）：块内逐行跟踪 + 改写（needle 字节替换优先，json 解析兜底）后重组（`_rewrite_blocks`）——直连名调用恒走此路径；
+  - **逐行**：仅测试替身（无 `aiter_bytes`）退化（`aiter_lines`）。
+- `_next_line` 每次最多等 `read_timeout_s`（逐块读空闲看门狗）。流式**无总闸**（ADR-075）：观察器没有 deadline，等多久由客户端决定。
+- 识别并跟踪：`[DONE]`、`choices[0].delta` 的 content/reasoning/tool_calls、`finish_reason`、SSE `usage`、`response_id`、首内容/首答案/末 delta、`content_chars` 与 preview。跟踪以帧为单位照跑（bytes 直进 `jsonfast.loads`，省逐帧 decode）；盲转会破坏伪成功/断流/记账语义。
+- 输出改写：needle 字节替换（`'"model":"<upstream>"' → '"model":"<public>"'`，未命中回退 `rewrite_line` 解析路径）合并 `sse_patch`；非 data 行原样透传；改写后的帧保留上游 JSON 原格式（不再由网关重排分隔符）。
 - prime 预读阶段若先遇到 `[DONE]` 或结束：无内容 → `empty`；有内容则保留，后续继续 yield。
 - 首字节之后：读超时/连接断开 → `stream_abort`（retryable=false），不再换渠道；正常结束但没有 finish_reason / `[DONE]` 完成标记 → `stream_abort`；结束且无任何内容 → `empty`。
 - `close()` 关闭 line iterator 与 response；客户端取消时 `events()` 标记 cancelled 并 re-raise，不写错误。

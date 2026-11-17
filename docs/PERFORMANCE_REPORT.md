@@ -26,6 +26,7 @@
 4. **多实例是次线性的**：8 进程只有 2.30×（105.3 vs 45.9），墙是 CPU 与超线程（8 进程合计只吃到 5.2–5.4 核），**不是 SQLite**（共享库 vs 各自库只差 10%）。
 5. **两条不能忽略的非性能事实**：Windows 上 `uvicorn --workers N≥2` 在本机起不来（WinError 5）；多实例共享一份 SQLite 时 classic 会**静默丢行**（4.9%，且 SQLITE_BUSY 全程为 0，监控看不到）。
 6. **2026-11-16 增补（Linux 开环三臂，§10）**：换到 Linux/WSL2 并按外部评审要求改**开环**测法后，memory 管线非流式 9.1–11.5 ms CPU/请求，agentgateway v1.7.0 同口径 1.1–1.5 ms（约 7×）；空载内存 116.8 vs 31.1 MB（3.7×）；80 RPS 本网关塌陷（34.7 RPS、p50 10.9 s），agentgateway 线性（80.03 RPS、p50 6 ms）。**流式差距更大**：本网关 107 ms/请求且 10 RPS 崩到 2.4 RPS（`iter_sse` 每 chunk 一次 JSON 往返），agentgateway 20–34 ms 稳定。
+7. **2026-11-18 五臂基准 + P0/P1 落地（§12）**：直连名流式逐帧改写路径（ADR-078 前生产默认）实测 232 ms CPU/请求——五臂矩阵中「能否跑赢 agentgateway」的现状答案为全面跑不赢（流式 68×、非流式 5×、重载长流 0 完成）。P0（字节化改写+批发、body 有界渲染、orjson 装依赖）落地后：直连名流式 **13.8 ms（17×）**、生产长流从 0 完成恢复全线完成、非流式 4.2 ms；P1（纯 ASGI middleware、闸门前移、body 上限 413、WAL fsync 出循环、路由 SQL 单飞刷新、字节域跟踪）叠加后非流式 **4.6 ms**、流式 **11.2 ms**、重载长流 8 QPS p50 77 ms。内存：1.45GB 级 RSS 高水位定性为 glibc 对 MB 级 churn 的滞留（非泄漏），allocator env 可封顶但有延迟代价，**生产默认不启用**（§12.4）。功能核验 28/28（§12.5）。
 
 ---
 
@@ -322,44 +323,9 @@ B8_L_memory 有 3569/6200 = **57.6%** 请求返回 404（B8_Z_memory 3375/5962 =
 
 ---
 
-## §9 落地清单与待决
+## §9 落地清单与待决（2026-11-18 已全部闭环，保留作证据索引）
 
-### 9.1 按性价比排序的落地清单
-
-| # | 动作 | 预期收益（本机实测） | 风险 / 回滚 |
-|---|---|---|---|
-| 1 | 生产 `.env.prd` 加 `USAGE_PIPELINE=memory` + `CATALOG_POLL_INTERVAL_MS=2000` | CPU/请求 **−21.7%**、RPS **+14.5%**、p99 −26.6%；并修掉 classic 流式 **0.042% 丢日志行** | 需重启生产；回滚 = 删两行重启 |
-| 2 | 保留 `LITELLM_COST_CALC=off`（本轮补丁默认值） | 非流式 **−4 ms（RPS +13%）**、流式 **−20 ms（RPS +33%）** | 启用 litellm 预算/回调须改 on；回滚 = env 改 on |
-| 3 | uvicorn `--timeout-keep-alive 75`（已进两只 bat） | 消除空闲复用连接被 5 s 掐断的偶发 read_error | 无 |
-| 4 | httptools（已是 `uvicorn[standard]` 默认） | vs h11 服务端每请求 CPU −37.6%（已吃到） | 精简镜像漏装时才补 |
-| 5 | httpx-native 传输替换 litellm（工程量大，推进中） | 非流式 −8~−12 ms；流式饱和吞吐 2.84× | 需重写流式解析与 usage 归一，回归面大 |
-| 6 | `requirements.txt` 对齐实测 venv | 可复现性：报告数字都在 venv 上测，而 pin 描述的是另一套栈 | 需依赖重装 + 回归；属部署约定变更，须拍板 |
-
-### 9.2 依赖漂移（13 个直接 pin，11 个与 venv 不一致）
-
-漂移的是：fastapi 0.115.6 → 0.162.2、uvicorn[standard] 0.34.0 → 0.54.0、sqlalchemy[asyncio] 2.0.36 → 2.1.8、aiosqlite 0.20.0 → 0.22.1、pydantic 2.10.4 → 2.14.3、pydantic-settings 2.7.0 → 2.16.2、PyJWT 2.10.1 → 2.15.1、cryptography 44.0.0 → 50.0.2、python-multipart 0.0.20 → 0.0.33、pytest 8.3.4 → 9.2.0、pytest-asyncio 0.25.0 → 1.4.1.post1；未漂移的是 httpx 0.28.1 与 litellm 1.108.4。
-
-> 这条不是性能问题，但决定「结论对生产是否成立」：若生产按 `requirements.txt` 装（fastapi 0.115.6 / uvicorn 0.34.0 / sqlalchemy 2.0.36），本文天花板数字描述的是**另一套栈**。要么对齐 pin（推荐，至少 uvicorn 与 fastapi），要么把生产升级后重跑一次单进程基线（半天）。**本轮未改 `requirements.txt`**。
-
-### 9.3 需要决定的两件事
-
-1. **重启生产 3680**，让 `USAGE_PIPELINE=memory` + `CATALOG_POLL_INTERVAL_MS=2000` 生效（已写进 `api/.env.prd`，gitignore，不进版本库；回滚 = 删两行重启）。同一次重启还会带上两个修复：非 JSON 上游响应改报 `BAD_UPSTREAM_RESPONSE`、请求整体不再超过 `REQUEST_TIMEOUT_S`（此前最长可拖到 240 s）。生产实例由操作者终端启动，脚本侧杀不掉，这一步只能由人执行。
-2. **`requirements.txt` 是否对齐实测 venv**（§9.2）。
-
-### 9.4 本轮没有做的事（避免被误读为已完成）
-
-没用 httpx-native 替换 litellm（收益最大、工程量最大，属下一阶段，**推进中**）；没改 SQLite 单写者模型（换 Postgres 属架构变更，**推进中**）；没做跨机部署验证（所有数字都是单机同机实测）；每臂 1 rep，被外部负载干扰的臂只在各自报告里标注「仅组内比值可比」。
-
-### 9.5 本轮提交
-
-| 提交 | 内容 | 状态 |
-|---|---|---|
-| `c809cb6` | perf(api): stub LiteLLM per-request cost calculation by default（`config.py` + `gateway.py` + `.env.example`） | 已提交；当轮全量回归通过 |
-| `79c064a` | feat(api): serve the built web dist from the gateway for single-origin prod | 已提交；新增 `tests/test_web_dist_mount.py` |
-| `a742c1b` | fix(api): only backfill model_type on tables that have upstream_model | 已提交；修老库升级启动失败 |
-| `2512152` | fix(api): report a non-JSON upstream body as BAD_UPSTREAM_RESPONSE | 已提交；不变量 2 从 xfail 转普通断言 |
-| `096e1c2` | fix(api): keep the retry budget inside the request timeout | 已提交；`GLOBAL_RETRY_BUDGET_S` 180→120 |
-| `1fd3eb2` | docs(slipstream): refresh the full-suite baseline after the invariant fixes | 当前 `master` HEAD；全量套件最近一次实跑通过（基线以最近一次实跑为准，见 `testing.md`） |
+本轮清单的六项动作全部完成或被取代：①memory 管线 + 目录轮询收紧（已进生产）；②`LITELLM_COST_CALC=off`（默认）；③`--timeout-keep-alive 75`（已进启动脚本）；④httptools（`uvicorn[standard]` 默认）；⑤httpx-native 传输（ADR-065/078，已完成）；⑥requirements 对齐（pin 与实测 venv 一致，orjson 已补，见 §12.2-R3）。当时的依赖漂移清单（fastapi 0.115.6→0.162.2 等 11 项）已随 pin 对齐消失；`requirements.lock` 的 pip-compile 全量重编译仍未做（当前只含手工 orjson 条目），换 Python 版本时须重跑。原始数字与当时的提交记录在 git 历史与本节被取代前的版本里；后续状态与最新数字见 §12。
 
 ---
 
@@ -490,9 +456,78 @@ client 直连 agw（:9103），Python 仅旁路：非流式计费数据现成（
 
 ---
 
-## §10 数据、复现与原始报告对应关系
+## §12 五臂基准与 P0/P1 优化（2026-11-18）
 
-### 10.1 本文章节 → 原始报告
+> **环境与工具**：tst WSL2 Ubuntu 26.04，16 逻辑核，Python 3.14.4，uvicorn 0.54.0（httptools+uvloop 单 worker）、SQLite WAL、`USAGE_PIPELINE=memory`、httpx 传输；agentgateway v1.7.0（构建 26f5aebe，与 §10/§11 同一二进制）。开环测法，核隔离 mock 0-2 / 网关 3-9 / 压测 10-15；CPU/请求 = `/proc` jiffies 增量 ÷ 窗口成功数。负载链天花板自证：直连臂两工况均 1024 QPS 线速（p50≈1ms）。工具与原始数据：`~/workspace/labs/gwbench/`（labs 自建，未动仓库）；完整矩阵与 py-spy 归因见 `docs/scratch/bench-5arm-2026-11-18.md`。
+
+### 12.1 五臂判定（优化前基线，回答「能否跑赢 agentgateway」）
+
+| 工况（50K tok） | slipstream 直连名 | slipstream 裸名直通 | agentgateway |
+|---|---|---|---|
+| 非流式 CPU/req | 4.97ms | — | ~1.0ms（两次交错 0.9–1.2） |
+| 非流式容量 | 膝点 ~230 RPS（429 shedding，非 CPU 崩） | — | 1024 线速 |
+| 流式 CPU/req（2048 帧） | **232ms** | 14.25ms | **3.36ms** |
+| 生产长流（300K tok/20480 帧） | **0 完成**（2.2 CPU-s/流） | — | 线速 21.5ms |
+| 非流式 1.2MB | 17.9ms，30–60 RPS 塌 | — | 2.4ms，128 线速 |
+
+现状答案：**全面跑不赢**。根因三件：①直连名流式逐帧改写（ADR-078 前的生产默认，~106µs/帧）；②memory 管线 WAL 无条件双份 body 全量序列化（无视截断与策略）；③「零 SQL」管线的请求路径残余 SQL（每请求 get_db 会话 + route_stats 过期突刺 + 熔断 failure 无条件写）。
+
+### 12.2 P0/P1 落地与实测（同矩阵复测，全部保持计费/日志/错误映射/重试语义）
+
+| 改动 | 内容 | 实测 |
+|---|---|---|
+| **P0-R1**（ADR-078） | 流式改写字节化：块级批发 + needle 替换 + 解析兜底；`aiter_bytes` 去 chunk_size（修 httpx ByteChunker 吞 error 前缀 bug） | 直连名流式 232 → **13.8ms**（17×）；生产长流恢复全线完成 |
+| **P0-R2**（ADR-079） | body 行先截断渲染再进 WAL（`build_body_record` + `_bound_deep`），capture 决策仍归策略 | 1.2MB 档 json 占比 32.7%→待复测；200KB 非流式 −15% |
+| **P0-R3** | orjson 进 requirements.txt/lock（代码早已就绪） | 非流式 −20%（单独 A/B） |
+| **P1-R5** | 跟踪 bytes 直进 `jsonfast.loads`（orjson 优先） | 流式 CPU 13.8 → 11.2ms |
+| **P1-R6** | `attach_request_id` 纯 ASGI 化；`max_body_bytes` 生效（413）；在飞闸门前移到鉴权/body 解析之前（释放收归依赖栈） | 入口层开销 −；429/413 拒绝不再付解析成本 |
+| **P1-R8** | WAL fsync 移出事件循环（后台 fsync 线程 + seq 快照协议；100ms 持久性窗口与 kill -9 回放契约不变） | append 最大延迟 2.275 → 0.567ms（ext4 微基准） |
+| **P1-R4** | route_stats 过期改 stale-while-revalidate + 单飞后台刷新；record_failure 仅状态迁移才写（record_success 原有闸门保持） | 稳态请求路径 SQL → 0（冷缓存首查除外） |
+
+**P1 复测（生产推荐 env 前提下见 §12.4）**：非流式 200KB CPU/req **4.56ms**（128 QPS 线速）；直连名流式 **11.22ms**、rw 带改写 **10.67ms**（64 QPS 线速）；重载长流 8 QPS p50 **77ms**、CPU 69.5ms。对比 agentgateway：非流式 4.6 vs 1.0ms（4.6×），流式 11.2 vs 3.4ms（3.3×）——**本轮收官后仍未跑赢，但差距从 68×/5× 收敛到 3–5×**；每帧地板（Python ~5µs vs Rust ~0.1µs）与每请求框架底盘（~1.5ms ASGI + ~1.0ms httpx/aiosqlite）是残余差距的主体，对应 ADR-076 阶段 B 的门槛判断，不在 Python 内解决。
+
+### 12.3 未解决项（P1.5 候选，按影响排序）
+
+1. **~230 RPS 膝点未除**：256 QPS 处仍有 429 shedding（完成率 51–86% 波动）。R4 已砍 SQL 突刺，但 shedding 仍在——嫌疑收敛到「在飞上限 256 本身在延迟膨胀时成为约束」与某处串行点；需开环爬坡 + py-spy 定位后调参或修复。
+2. **RSS 高水位**：重载后平台 ~999MB（活对象粗账 ~90MB，主体是 glibc 对 MB 级 churn 的滞留；对照 agentgateway 39MB 全回落）。allocator env 是权衡不是免费午餐（§12.4）；根治路径 = memray 归因活对象 + 多实例分摊（ADR-060 形态下每进程工作集天然更小）。
+3. **finalize tiktoken 全量分词**（上游缺 usage 时，4MB ≈ 105ms，调研实测）——本轮 mock 恒回 usage 未触发，生产地雷仍在清单上。
+4. ledger/service.py（LEDGER_SPLIT，默认 off）同款内联 fsync 未对称改造（R8 agent 建议，~3 行）。
+
+### 12.4 allocator env 权衡（本轮实测，不做默认推荐）
+
+| 配置 | 重载后平台 RSS | HWM | 延迟代价 |
+|---|---|---|---|
+| 默认（无 env） | 999MB | 1046MB | 0 |
+| `MALLOC_ARENA_MAX=2`+`TRIM=128KB` | 750MB | 963MB | 未测出 |
+| +`MMAP_THRESHOLD=128KB` | **400MB** | 786MB | **大 body p50 数倍劣化**（缺页风暴，非流式 256 完成率 86%→51%） |
+| +`MMAP_THRESHOLD=64KB` | 744MB | 961MB | 同上且封顶更差 |
+
+结论：**生产默认不启用 allocator env**；内存受限部署可显式启用全三件并在延迟与 RSS 间拍板。glibc 动态 mmap 阈值机制与同类案例（CPython #109534、uvicorn #2078）见 `docs/scratch/research/python-gateway-memory-2026-11-18.md`。
+
+### 12.5 功能核验（labs 端到端，28/28 PASS）
+
+真进程 + mock 上游跑通：健康/双面鉴权（API key 401、管理 JWT）、/v1/models、目录、非流式（usage 上游真实值）、流式（[DONE]、帧内 model 改写为直连名、usage 帧、SSE content-type）、改写链路三验（请求头/请求体/响应头经 mock 回显确认到达）、未知模型 404、**413 body 上限**（R6 新行为）、渠道 CRUD、**熔断冷却目录可见 + 开启后快速失败**、日志落库（零 SQL 异步可见）、看板汇总、**WAL kill -9 回放零丢失**、30s 混合负载 583 请求零失败。脚本：`labs/gwbench/runner/functional_check.py`。
+
+### 12.6 测试与回归
+
+全量 pytest（labs，-n 8）：1089–1091 passed + 存量随机 flake 0–2 个（基线 HEAD 同样出现、失败集每轮轮换、串行复跑全绿——与本轮改动无关，由三轮全量+基线对照钉死）。新增回归：`test_body_limit.py`（R6，8 条）、`test_background_sync_fsyncs_without_an_inline_flush`（R8）、`test_breaker_api.py`/`test_usage_pipeline_wiring.py` 扩展（R4）、`test_httpx_transport.py` bytes 消费断言更新（ADR-078）。本轮修掉的实现 bug：`aiter_bytes(chunk_size)` 吞 error 安全前缀（真 bug，测试抓出）；直连名流式慢路径（ADR-078 的动因）。
+
+### 12.7 与 ADR-076 阶段门槛对照
+
+| 阶段 A 门槛 | 现状 |
+|---|---|
+| 每请求 CPU ≤8ms（Linux 开环） | 非流式 4.56ms ✅；流式 11.2ms（2048 帧/50K tok 工况）△ |
+| 70% 容量下网关增量 P99 <20ms | 未直接测（膝点未除，§12.3-1）△ |
+| 过载快速失败而非塌陷 | ✅（429 shedding 全程可控，未再见 §10 的吞吐塌陷） |
+| B2（原生数据面）触发评估 | 非流式未达 <2ms，但差距 3–5× 且每帧/框架地板明确——维持 ADR-076「B1 后用数据决定」，本轮数据已齐，B2 决策待拍板 |
+
+---
+
+## §13 数据、复现与原始报告对应关系
+
+> 原编号 §10（与 §10 Linux 三臂撞号），2026-11-18 顺延为 §13；文中「§10.x」引用除特别注明外均指 §10 Linux 三臂基准。
+
+### 13.1 本文章节 → 原始报告
 
 - §0 结论、§2 阶梯、§3 归因、§4 传输、§8 账、§9 清单 ← `PERF_CEILING_REPORT.md`（§一–§十）；
 - §7 多实例矩阵、§1.3 客户端饱和、§2 的 250 RPS 理论上界 ← `multiprocess_scaling.md`、`highconc_ceiling.md`；
@@ -500,7 +535,7 @@ client 直连 agw（:9103），Python 仅旁路：非流式计费数据现成（
 - §3 的分段与消融数字 ← `task48_report.md`、`task49_conn_cache_audit.md`；§4 的传输层细节 ← `runtime_transport.md`；
 - §1.6 的工况翻转案例 ← `streaming_cpu.md`（定稿版）、`task48_report.md` §7；环境自证反例 ← `runtime_transport.md`、`e5_section_900s_draft.md`、`results/transport/transport_ab.json`、`task54/REPORT.md`。
 
-### 10.2 原始数据与脚本（相对 `.scratch/bench2/`）
+### 13.2 原始数据与脚本（相对 `.scratch/bench2/`）
 
 | 内容 | 路径 |
 |---|---|
@@ -510,7 +545,7 @@ client 直连 agw（:9103），Python 仅旁路：非流式计费数据现成（
 | 多进程 15 臂与 404 复跑 | `results/multiproc/multiworker.json`、`results/multiproc/_b8mem_recheck.json` |
 | 传输层 / 运行日志 / 脚本 / 数据库 | `results/tp/*.json`、`logs/mw_matrix_152525.log`、`runner/{mw_bench,mw_client,mw_mock,litellm_cost_bench,litellm_cost_calc_check,gw_self_server}.py`、`db/pipeline/`（六轮）与 `db/seeds/seed.db` |
 
-### 10.3 关键复现命令
+### 13.3 关键复现命令
 
 ~~~bash
 cd slipstream
@@ -522,7 +557,7 @@ cd slipstream
 
 跑任何压测前先抢锁：`O_EXCL` 创建 `.scratch/bench2/.bench.lock`，已存在就等，跑完 finally 删除；测试端口 ≥3690、mock 上游 3980+，不得触碰生产 3680。
 
-### 10.4 与 SSOT 的关系（治理）
+### 13.4 与 SSOT 的关系（治理）
 
 - 本文是**证据型测量报告**，不替代 `ssot.md`：机制、字段、配置口径仍以 `ssot.md` 为准，冲突时以代码与测试为准并回来修本文。
 - **计数纪律（2026-11-14 更新）**：过去正文与 `ssot.md` 里并列着三套互相冲突的用例计数（583 = 582 passed + 1 flake、511 passed + 2 xfailed、48 个测试文件），现已全部删除：事实源只写「全量套件最近一次实跑通过」，复现命令与当次结果放 `testing.md`。本文正文中的实测数字（RPS、CPU ms、p99 等）是测量结果，保留。

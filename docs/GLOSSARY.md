@@ -142,6 +142,7 @@
 | 客户端凭据 Client Credentials | 客户端带进来的身份凭据：`authorization / proxy-authorization / cookie / api-key / x-api-key`。**一律不进上游**，上游只认渠道密钥（ADR-074 决策 2） | 与「用户密钥」不是一回事：用户密钥只用于网关鉴权，渠道密钥只用于上游鉴权；两个都不能沿另一条路透传 |
 | 传输层头 Hop-by-hop Headers | 只描述当前这一跳连接的头（`connection / keep-alive / te / trailer / transfer-encoding / upgrade / proxy-*`），两端都不转发（ADR-074 决策 1） | 与端到端头（`content-type`、`x-request-id`）相对；判据是「换一跳是否还成立」 |
 | 网关必需头 Gateway-owned Headers | 由网关最后写入、不允许上游或渠道规则覆盖的头：流式的 `content-type: text/event-stream`、`cache-control: no-cache`、`x-accel-buffering: no`，以及 `x-request-id`（ADR-074 决策 5）；出站侧的 `content-type` / `content-length` / `host` / `x-request-id` 同样对渠道规则关闭（ADR-074 决策 4，2026-11-15 裁定） | 覆盖发生在合并**之后**且大小写不敏感；上游同名不同大小写的头不会与网关的并存 |
+| 流式转发路径 Stream Relay Path | 上游 SSE 到客户端的转发实现，三态：**直通块**（字节原样）、**改写块**（块内逐行跟踪+改写后重组，ADR-078）、**逐行**（仅测试替身退化）。三态都按网络块产出消息，跟踪（usage 兜底/断流判定/relay 累计）逐帧照跑 | 三态是「实现路径」不是「行为差异」：error 帧不发客户端、[DONE] 合成、首字节后不重试等契约完全一致；不要把「直连名=逐行慢路径」当成现存事实（2026-11-18 ADR-078 后三态同粒度） |
 
 ## 9. 改名与翻转记录（2026-11-15，用户裁定）
 
@@ -177,3 +178,14 @@
 | 尝试日与拉取日 Last Attempt / Last Pull | `last_attempt` = 最近一次**尝试**的日期；`last_pull` = 最近一次**拿到数据**的日期 | 失败那天 `last_attempt` 更新、`last_pull` 不动；更新时机与触发细节见 ssot §8.7 |
 | 惰性触发 Lazy Trigger | 需要默认参数时才拉取的一次性刷新方式（挂在哪、何时触发见 ssot §8.7） | 不是定时任务：没人用的日子不抓 |
 | 应用默认参数 Apply Defaults | 「恢复自动值」按钮的改名（2026-11-16 用户裁定）：把可同步字段重置为 models.dev 本次拉取值并刷新基线。后端端点与 ADR-073 行文仍用「恢复自动值 / force」指同一动作 | 改的是用户可见名称，不是语义；旧文档里的「恢复自动值」= 本术语 |
+
+## 12. 基准与负载（2026-11-18）
+
+| 术语 | 定义 | 易混 |
+|---|---|---|
+| 负载臂 Bench Arm | 同一负载下被测对象的一个配置：`direct`（直连 mock，天花板）/ `slipstream`（裸转发或带改写）/ `agentgateway`（同） | 臂是「被测配置」，不是渠道的传输臂（§8 传输臂）；两词都在用，语境不同 |
+| 生产形态臂 Production-shape Arm | 请求体与流长按真实生产比例构造的负载档：输入 50K–300K tok（约 200KB–1.2MB 请求体）、输出 300–20K tok（对应 SSE 帧数） | 不是「生产环境的流量回放」；是合成负载里最接近生产的那一档 |
+| 特征臂 Features-on Arm | 开启路由 + 请求头/体改写 + 响应头/体改写的对比腿（用户裁定的必测条件，ADR-076 决策 4 的扩展）；与「裸转发腿」成对出现 | 特征臂≠生产形态臂：前者是功能开关维度，后者是负载大小维度，矩阵里正交 |
+| 开环矩阵 Open-loop Matrix | 固定到达率（QPS 64/128/256/512/1024）的压力网格，延迟从应发时刻起算（纠正 coordinated omission）；验收口径（ADR-076） | 不是闭环阶梯（PERFORMANCE_REPORT §2 的旧口径）；两者数字不可互比 |
+| 天花板自证 Ceiling Self-certification | 压测前置动作：直连臂先跑满梯度证明「mock + 负载器」不是瓶颈（PERFORMANCE_REPORT §1.3 判据）；不过此关的对比数字一律作废 | 它证明的是「网关数字可信的上界」，不是网关自身的容量 |
+| 塌陷 Collapse | 网关在过载下吞吐不升反降、延迟进入秒级的状态；与「准入快速失败（429 shedding）」不同——shedding 是设计行为（ADR-076 决策 5），塌陷是 shedding 前的失稳 | 看到大量 429 不等于塌陷：完成率稳住、延迟可控的 shedding 是过载保护的正常形态 |

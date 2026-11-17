@@ -8,7 +8,7 @@
 - **contracts/** — 对外契约：data-plane-management-api.md（管理面 API）、usage-event-schema.md（计费事件 schema）
 
 ## 性能与运维
-- **PERFORMANCE_REPORT.md** — 性能权威报告：Windows 同机口径（§0–§9）+ Linux 开环三臂基准与 agentgateway 对照（§10–§11）
+- **PERFORMANCE_REPORT.md** — 性能权威报告：Windows 同机口径（§0–§9）+ Linux 开环三臂基准与 agentgateway 对照（§10–§11）+ 五臂基准与 P0/P1 优化落地、内存治理（§12）、数据与复现（§13）
 - **testing.md** — 测试策略与门禁
 - **postgres.md** — SQLite→Postgres 迁移评估
 - **GLOSSARY.md** — 术语表
