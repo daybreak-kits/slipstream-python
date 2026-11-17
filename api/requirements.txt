@@ -12,6 +12,11 @@ PyJWT==2.15.1
 cryptography==50.0.2
 python-multipart==0.0.33
 tiktoken==0.14.0
+# Windows ships no system tz database, so zoneinfo raises ZoneInfoNotFoundError
+# for any IANA name (the dashboard's DEFAULT_TIMEZONE=Asia/Shanghai is enough to
+# 500 every /api/dashboard/* request). Linux/macOS read /usr/share/zoneinfo and
+# ignore this package; installing it everywhere keeps the dependency explicit.
+tzdata==2026.6
 pytest==9.2.0
 pytest-asyncio==1.4.1
 pytest-xdist==3.8.0

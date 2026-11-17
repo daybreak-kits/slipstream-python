@@ -16,5 +16,8 @@
 ## 专项
 - **upstream_transport.md** — 上游传输与 SSE 消费机制正文
 - **upstream-reasoning.md** — 上游 reasoning/thinking 接入实测（协议差异与证据，配套 ssot §5.4/§9.3）
-- **UI.md** — 前端技术栈/规范/采纳状态提炼合并版（原 ui-standards、ui-adoption-map、ui-stack、design-system 四篇的精华，原文在开发仓）
+- **ui.md** — 前端技术栈/规范/采纳状态提炼合并版（原 ui-standards、ui-adoption-map、ui-stack、design-system 四篇的精华，原文在开发仓）
 - **research/** — 研究记录（证据与决策依据，非规范）：cache-hit-rate-2026-11-15.md（缓存命中率归因，ADR-068）、litellm-rust-2026-11-15.md
+
+## Agent 工作流
+- **agents/** — agent 工作流配置，不承载项目事实：`issue-tracker.md`（本地 Markdown 票据约定与入库策略）、`triage-labels.md`（五角色 → `Status:` 取值）、`domain.md`（领域文档消费规则与冲突优先级）。入口在仓库根 `AGENTS.md`。

@@ -80,8 +80,8 @@ registry 四条：①无 combobox → 本地 Popover+Command；②Radix Select �
 
 - `docs/ssot.md` §9「前端信息架构与视觉规范」：§9.1 路由与导航分组、§9.2 视觉系统、§9.3 UX v2 已落地要点。
 - ADR（均在 `docs/adr/`）：**ADR-064** 全量迁 shadcn + Tailwind 4（取代 062/063）· 062 不引 antd、自建基元 · 063 缺口件取 registry 源码 · **066** token 语义与圆角标尺（命名/数值冲突以它为准）· 040 图表 16 槽色板（`index.css:178` 注释误引 026）· 049 格式化单一来源 · 053 时间筛选只预览、提交权归搜索 · 068 缓存命中率四口径 · 027 视觉系统 v2 · 026 看板/日志。
-- 代码事实源：`web/src/index.css`、`web/src/components/ui/`、`web/src/lib/`、`web/scripts/lint-ui.mjs`、`web/e2e/__screenshots__`。
+- 代码事实源：`web/src/index.css`、`web/src/components/ui/`、`web/src/lib/`、`web/scripts/lint-ui.mjs`。
 
 ---
 
-本文为 ui-standards/ui-adoption-map/ui-stack/design-system 四篇的提炼合并版（2026-11-16），原文见开发仓 docs/（scratch 外）。
+本文为 ui-standards / ui-adoption-map / ui-stack / design-system 四篇的提炼合并版（2026-11-16）。那四篇原文只存在于内部开发仓，生产仓不随附；本文是生产仓侧的唯一规范正文。

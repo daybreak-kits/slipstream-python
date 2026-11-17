@@ -124,14 +124,20 @@ async def memory_client(memory_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]
 
 def test_usage_pipeline_vocabulary_and_classic_default() -> None:
     url = "sqlite+aiosqlite:///:memory:"
-    assert Settings(database_url=url).usage_pipeline == "classic"
-    assert Settings(database_url=url).zero_sql_pipeline is False
+    # _env_file=None: this case asserts the *code* default. Without it a local
+    # api/.env carrying USAGE_PIPELINE=memory overrides that default, and the
+    # failure would say nothing about the code.
+    def settings(**kw):
+        return Settings(_env_file=None, database_url=url, **kw)
+
+    assert settings().usage_pipeline == "classic"
+    assert settings().zero_sql_pipeline is False
     for value in ("off", "classic", "", "no", "false", "0"):
-        assert Settings(database_url=url, usage_pipeline=value).zero_sql_pipeline is False, value
+        assert settings(usage_pipeline=value).zero_sql_pipeline is False, value
     for value in ("memory", "on", "yes", "true", "1"):
-        assert Settings(database_url=url, usage_pipeline=value).zero_sql_pipeline is True, value
+        assert settings(usage_pipeline=value).zero_sql_pipeline is True, value
     with pytest.raises(ValueError):
-        Settings(database_url=url, usage_pipeline="bogus").zero_sql_pipeline
+        settings(usage_pipeline="bogus").zero_sql_pipeline
 
 
 async def _token(client: httpx.AsyncClient) -> dict[str, str]:

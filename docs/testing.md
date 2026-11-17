@@ -34,9 +34,15 @@ Every test builds a fresh application and runs its full lifespan (gateway
 clients, schema creation, default-admin seeding), so a fixed startup cost is
 paid per test rather than per run. On this box that makes the suite almost
 entirely CPU- and I/O-serial, and a single pytest process leaves most cores
-idle. No `pytest-xdist`/`pytest-timeout` is available here and packages cannot
-be installed, so `api/scripts/run_tests_parallel.py` shards the suite
-itself.
+idle.
+
+Two ways to parallelise, both shipped:
+
+- **`pytest-xdist`** (in `requirements.txt`) — `pytest -n 8` spreads cases
+  across workers. This is the simple path and what `README.md` recommends.
+- **`api/scripts/run_tests_parallel.py`** (no plugin needed) — shards whole
+  *files* across independent pytest subprocesses, so a per-file fixture or
+  module-level state never crosses a worker boundary.
 
 ### How it works
 
@@ -178,6 +184,21 @@ involved.
   — depends on the catalog poll interval and occasionally needs more than one
   poll cycle under load. It is expected to pass on a rerun.
 
+## The suite ignores `api/.env`
+
+`Settings` is a pydantic-settings model with `env_file=".env"`, so *any*
+`Settings(...)` constructed in a test would also read the developer's untracked
+`api/.env`. That file carries `USAGE_PIPELINE=memory` on this box, which moved
+the entire suite onto the zero-SQL pipeline and broke 26 tests written against
+the classic path — green on one machine, red on the next, with no code
+difference between the runs.
+
+`tests/conftest.py` therefore sets `Settings.model_config["env_file"] = None`
+at import time, pinning the suite to the code defaults. A test that wants
+`memory` mode opts in explicitly (see the `memory_app` fixture in
+`tests/test_usage_pipeline_wiring.py`). Do not remove that line, and do not
+"fix" a test by exporting a variable that the local `.env` happens to set.
+
 ## Measuring a before/after change
 
 Set `PYTEST_NO_FAST_FIXTURES=1` to restore the old fixture behaviour (half
@@ -235,27 +256,28 @@ API suite above.
 |---|---|
 | `npm run build` | `tsc --noEmit` passes and the production bundle builds (`vite build`; chunk-size guard in `vite.config.ts`) |
 | `npm test -- --run` | vitest component/flow tests (bare `npm test` is watch mode) |
-| `npm run test:visual` | Playwright screenshot suite against a dev server it starts itself on **port 3690** |
-| `npm run test:visual:update` | Re-records the 7 baseline screenshots after an intended visual change |
 | `npm run lint:ui` | UI discipline gate: `node scripts/lint-ui.mjs --max-warnings 19` |
+
+**No visual regression suite.** A Playwright screenshot suite (`e2e/visual.spec.ts`,
+`playwright.config.ts`, 7 baseline PNGs) existed until 2026-11-18 and was removed:
+the baselines were never committed (`.gitignore`d), so the suite could not pass in
+any fresh clone, and the snapshots were judged unsafe to publish. Visual review is
+now manual — run `./start-prd.sh`, open the UI, and look at it.
 
 Things that cost time if forgotten:
 
-- **Port 3690 belongs to the visual suite; 3680 is the gateway.** The Playwright
-  config starts its own server with `reuseExistingServer: false` on purpose:
-  pointing it at 3680 silently tests the gateway's stale `dist` build, and the
-  symptom is "the source changed but the test still fails".
-- Visual diff threshold is `maxDiffPixelRatio: 0.002` (`playwright.config.ts`).
+- **Port 3680 is the gateway.** A dev server for manual UI work belongs on another
+  port (`npm run dev -- --port 3690`); pointing a browser at 3680 serves the
+  gateway's `dist` build, so source edits appear to have no effect until rebuilt.
 - `src/test/setup.ts` stubs four browser APIs jsdom lacks — `ResizeObserver`,
   the `hasPointerCapture`/`setPointerCapture`/`releasePointerCapture` trio,
   `scrollIntoView`, and a never-matching `matchMedia`. Any test that renders a
   Radix Select/Popover/Tooltip throws on the first screen without them.
-- `lint:ui` splits its counts: application-code violations fail the gate, while
-  vendored shadcn sources under `src/components/ui/**` are reported in a
-  separate "relaxed" bucket. The current ceiling (19 warnings) is exactly that
-  vendor exception count — the per-batch ladder is in
-  `docs/ui-adoption-map.md` §9, and the run's real-environment notes in §10.
-- Numbers (test counts, timings, bundle sizes) live in
-  `docs/ui-adoption-map.md` §8/§10 and `PERFORMANCE_REPORT.md`, not here —
-  counting discipline, `ssot.md` §16.
+  - `lint:ui` splits its counts: application-code violations fail the gate, while
+    vendored shadcn sources under `src/components/ui/**` are reported in a
+    separate "relaxed" bucket. The current ceiling (19 warnings) is exactly that
+    vendor exception count — the per-batch ladder is in `docs/ui.md` §2.4.
+  - Numbers (test counts, timings, bundle sizes) live in `PERFORMANCE_REPORT.md`
+    and this file's own "Running the suite" notes, not in `ssot.md` —
+    counting discipline, `ssot.md` §16.
 

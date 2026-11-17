@@ -19,6 +19,14 @@ if str(SRC_DIR) not in sys.path:
 from l01_core.config import Settings  # noqa: E402
 from l07_bootstrap.app_factory import create_app  # noqa: E402
 
+# Settings uses SettingsConfigDict(env_file=".env"), so any Settings(...) built
+# in a test also reads the developer's untracked api/.env. In this repo that
+# file carries USAGE_PIPELINE=memory, which silently moved the whole suite onto
+# the zero-SQL pipeline and broke tests written against the classic path -- a
+# run that is green on one machine and red on the next. Pin the suite to the
+# code defaults instead; a test that wants memory mode opts in explicitly.
+Settings.model_config["env_file"] = None
+
 _HASH_CACHE: dict[str, str] = {}
 
 
@@ -105,7 +113,15 @@ def database_url() -> Iterator[str]:
 
 @pytest.fixture
 def test_settings(database_url: str) -> Settings:
+    # ``_env_file=None`` pins the suite to the code defaults. Without it
+    # SettingsConfigDict(env_file=".env") also reads whatever the developer
+    # happens to have in api/.env -- in this repo that file carries
+    # USAGE_PIPELINE=memory, which silently moved every test onto the zero-SQL
+    # pipeline: 26 tests written against the classic path failed, and cases
+    # that only pass in classic mode were never exercised. A test run must not
+    # depend on an untracked local file.
     return Settings(
+        _env_file=None,
         database_url=database_url,
         jwt_secret="test-jwt-secret-0123456789abcdef0123456789abcdef",
         jwt_expire_minutes=60,

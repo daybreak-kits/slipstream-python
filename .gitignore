@@ -7,20 +7,21 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+# （本块全部锚定仓库根：曾因未锚定的 lib/ 静默丢弃 web/src/lib/ 整目录）
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
+/share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -220,7 +221,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Logs
-logs
+# 锚定到仓库根：未锚定的 `logs` 曾吞掉 web/src/components/logs/ 整目录。
+/logs
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -343,7 +345,9 @@ data/
 *.db-shm
 *.db-wal
 *.sqlite3
-.scratch/
+.scratch/**
+!.scratch/**/
+!.scratch/**/*.md
 .pytest-dbs/
 data-gym-cache/
 prof_*.py
@@ -354,8 +358,7 @@ docs/scratch/
 web/dist/
 *.tsbuildinfo
 web/.vite/
-
-# visual audit artifacts (screenshots/dumps) stay out of git
-web/e2e/audit/
-web/e2e/.tmp/
-web/e2e/__screenshots__/
+# Playwright artifacts (the visual suite was removed; these guard the names
+# against a future re-introduction dumping untracked files into the tree)
+web/test-results/
+web/playwright-report/

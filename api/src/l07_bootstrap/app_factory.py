@@ -17,7 +17,8 @@ from l01_core import runtime
 from l01_core.config import Settings, get_settings
 from l01_core.ids import new_request_id
 from l02_infra.db import build_engine, build_sessionmaker, init_db
-from l05_service import body_logging, catalog, ledger, log_pipeline, retention, route_settings, route_stats, upstream_settings, usage_sink
+from l05_service import body_logging, ledger, log_pipeline, retention, route_settings, route_stats, upstream_settings, usage_sink
+from l05_service import catalog as catalog_service
 from l05_service.auth import ensure_default_admin
 from l05_service.config_catalog import Catalog, bind_catalog
 from l05_service.model_defaults import ModelDefaultsService
@@ -123,7 +124,10 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
     def _on_model_defaults_refreshed() -> None:
         # A fresh snapshot can change the directory listing: drop both caches
         # so the next read shows it (ADR-073 decision 2 / D3).
-        catalog.reset_model_directory_cache()
+        # NB: use the service module explicitly. A bare `catalog` here resolves
+        # to `l06_api.routers.catalog`, which is imported below for
+        # `include_router` and has no `reset_model_directory_cache`.
+        catalog_service.reset_model_directory_cache()
         catalog_cache.mark_dirty()
 
     model_defaults_service.on_refreshed = _on_model_defaults_refreshed

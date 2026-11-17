@@ -1,5 +1,7 @@
 # ADR-064 全量迁移到 shadcn（copy-in）+ Tailwind 4
 
+> **后续变更（2026-11-18，不改本条结论）**：本条记录的 Playwright 视觉基线门禁（`web/e2e/__screenshots__` 的 7 张快照）已随套件一并移除——基线从未入库，全新克隆无法跑通，且快照含渠道标识不宜公开。本条「视觉零漂移」是迁移当时的验收记录，现状的视觉验收为人工。见 `ssot.md` §15 第 7 条、`docs/testing.md`。
+
 ---
 status: accepted
 date: 2026-11-14
