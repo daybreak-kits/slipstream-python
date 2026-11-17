@@ -2,7 +2,7 @@
 
 > **状态**：四份原始性能报告的合并权威版（2026-11-14）。本文件不引入新测量，只做合并、对账与索引；数字与原始报告逐项对齐，无法确证的条目显式标注「待验证」。
 >
-> **证据来源**：`.scratch/bench2/analysis/` 下的 `PERF_CEILING_REPORT.md`、`multiprocess_scaling.md`、`litellm_cost_calc.md`、`memory_pipeline.md`；原始数据在 `.scratch/bench2/results/**`，脚本在 `runner/**`。
+> **证据来源**（**不在本仓**，见文末「证据归属」）：`.scratch/bench2/analysis/` 下的 `PERF_CEILING_REPORT.md`、`multiprocess_scaling.md`、`litellm_cost_calc.md`、`memory_pipeline.md`；原始数据在 `.scratch/bench2/results/**`，脚本在 `runner/**`。这些路径属于**开发仓**的压测工作区，生产仓不随附；引用它们是为标明数字出处，不是可点击的链接。
 >
 > **环境**：Windows 10，8 逻辑核 / 4 物理核，**15.76 GiB**（`psutil.virtual_memory().total` 实测）；uvicorn 0.54.0（httptools、单 worker、生产 app）、SQLite（WAL）、Python 3.13.14，上游是同机 mock。
 >
@@ -133,7 +133,7 @@
 - **C≥64 的「降」不是网关变慢，是压不进去**：同机客户端每请求 CPU 从 5 ms 涨到 38 ms，自身单线程事件循环满负荷；网关本身始终只拿到 0.85–1.22 核。
 - **天花板是算术**：8 逻辑核 ÷ 32 ms ≈ 250 RPS（整机满载理论上界，见 `highconc_ceiling.md`）；1000 RPS 需要 32 个核，而这台机器只有 8 逻辑 / 4 物理核。内存不是墙：RSS 随并发线性涨（122 → 270 MB），1024 并发不 OOM。
 - **口径警告**：本表与 §7 的 A1_L_classic（45.9 RPS / 27.3 ms）**不可直接比**——本表零延迟上游、C=16、cost 开；§7 是 50 ms 上游、C=128、cost 关。两张表各自内部可比。
-- 与 `ssot.md` §11.2 的「12–13 rps」不冲突：那是 mock 0.6 s 流、SQL 瘦身（13 → 6 条）之前的口径；本表是零延迟 mock + SQL 已瘦身。两者不可对比，`ssot-index.md` 已改写为指向本报告。
+- 与 `ssot.md` §11.2 的「12–13 rps」不冲突：那是 mock 0.6 s 流、SQL 瘦身（13 → 6 条）之前的口径；本表是零延迟 mock + SQL 已瘦身。两者不可对比；`ssot.md` §11.2 已改为指向本报告，不再自己维护性能数字。
 
 ---
 
@@ -328,7 +328,7 @@ B8_L_memory 有 3569/6200 = **57.6%** 请求返回 404（B8_Z_memory 3375/5962 =
 
 | # | 动作 | 预期收益（本机实测） | 风险 / 回滚 |
 |---|---|---|---|
-| 1 | 生产 `.env.prd` 加 `USAGE_PIPELINE=memory` + `CATALOG_POLL_INTERVAL_MS=2000` | CPU/请求 **−21.7%**、RPS **+14.5%**、p99 −26.6%；并修掉 classic 流式 **0.042% 丢日志行** | 需重启生产；回滚 = 删两行重启 |
+| 1 | 生产 `api/.env` 加 `USAGE_PIPELINE=memory` + `CATALOG_POLL_INTERVAL_MS=2000` | CPU/请求 **−21.7%**、RPS **+14.5%**、p99 −26.6%；并修掉 classic 流式 **0.042% 丢日志行** | 需重启生产；回滚 = 删两行重启 |
 | 2 | 保留 `LITELLM_COST_CALC=off`（本轮补丁默认值） | 非流式 **−4 ms（RPS +13%）**、流式 **−20 ms（RPS +33%）** | 启用 litellm 预算/回调须改 on；回滚 = env 改 on |
 | 3 | uvicorn `--timeout-keep-alive 75`（已进两只 bat） | 消除空闲复用连接被 5 s 掐断的偶发 read_error | 无 |
 | 4 | httptools（已是 `uvicorn[standard]` 默认） | vs h11 服务端每请求 CPU −37.6%（已吃到） | 精简镜像漏装时才补 |
@@ -343,7 +343,7 @@ B8_L_memory 有 3569/6200 = **57.6%** 请求返回 404（B8_Z_memory 3375/5962 =
 
 ### 9.3 需要决定的两件事
 
-1. **重启生产 3680**，让 `USAGE_PIPELINE=memory` + `CATALOG_POLL_INTERVAL_MS=2000` 生效（已写进 `api/.env.prd`，gitignore，不进版本库；回滚 = 删两行重启）。同一次重启还会带上两个修复：非 JSON 上游响应改报 `BAD_UPSTREAM_RESPONSE`、请求整体不再超过 `REQUEST_TIMEOUT_S`（此前最长可拖到 240 s）。生产实例由操作者终端启动，脚本侧杀不掉，这一步只能由人执行。
+1. **重启生产 3680**，让 `USAGE_PIPELINE=memory` + `CATALOG_POLL_INTERVAL_MS=2000` 生效（这两个值已在 `api/.env.example` 作为默认写入；真实部署请在自己的 `api/.env` 里确认，该文件 gitignore、不进版本库；回滚 = 删两行重启）。同一次重启还会带上两个修复：非 JSON 上游响应改报 `BAD_UPSTREAM_RESPONSE`、请求整体不再超过 `REQUEST_TIMEOUT_S`（此前最长可拖到 240 s）。生产实例由操作者终端启动，脚本侧杀不掉，这一步只能由人执行。
 2. **`requirements.txt` 是否对齐实测 venv**（§9.2）。
 
 ### 9.4 本轮没有做的事（避免被误读为已完成）
@@ -526,5 +526,9 @@ cd slipstream
 
 - 本文是**证据型测量报告**，不替代 `ssot.md`：机制、字段、配置口径仍以 `ssot.md` 为准，冲突时以代码与测试为准并回来修本文。
 - **计数纪律（2026-11-14 更新）**：过去正文与 `ssot.md` 里并列着三套互相冲突的用例计数（583 = 582 passed + 1 flake、511 passed + 2 xfailed、48 个测试文件），现已全部删除：事实源只写「全量套件最近一次实跑通过」，复现命令与当次结果放 `testing.md`。本文正文中的实测数字（RPS、CPU ms、p99 等）是测量结果，保留。
-- **治理冲突已解决（2026-11-14）**：`ssot.md` §16 已改写为文档职责边界——`ssot.md` 负责机制与口径、`adr/` 负责决策理由、`INDEX.md` 负责按界面导航、`GLOSSARY.md` 负责词义、本页负责总入口；旁支文档只允许「实测证据」（本文、`testing.md`）与「操作手册/专项说明」（`upstream_transport.md`、`postgres.md`）两类。本文不再需要例外说明。
-- `ssot-index.md` 已改为纯入口页（指向 `INDEX.md` 与各事实源），不再承载「快速事实」表，因此也不会再出现「402 passed / 431.95 s」「12–13 rps」这类会过期的计数。
+- **治理冲突已解决（2026-11-14）**：`ssot.md` §16 已改写为文档职责边界——`ssot.md` 负责机制与口径、`adr/` 负责决策理由、`INDEX.md` 负责文档入口与按界面导航、`GLOSSARY.md` 负责词义；旁支文档只允许「实测证据」（本文、`testing.md`）、「操作手册/专项说明」（`upstream_transport.md`、`upstream-reasoning.md`、`postgres.md`、`ui.md`）与「agent 工作流配置」（`AGENTS.md`、`docs/agents/`）三类。
+- 早期曾有一份 `ssot-index.md` 承担总入口页，已于 2026-11-16 撤销并合并进 `INDEX.md`；生产仓不再有该文件，凡引用它按 `INDEX.md` 理解。
+
+### 10.5 证据归属
+
+`.scratch/bench2/`、`docs/scratch/` 与各 `REPORT-*.md` 原始报告都位于**内部开发仓**，不随生产仓同步（`docs/scratch/` 在 `.gitignore` 内）。本文保留对它们的路径引用，仅为标明每个数字的出处；在本仓内这些路径不可解析，这是预期行为，不是待修的死链。需要复核原始数据时去开发仓。

@@ -1,8 +1,8 @@
 # 驭流（Slipstream）单一事实源（SSOT）
 
-> **状态**：当前唯一事实源。仓库中的产品、架构、设计、运维结论只保留在本文件与 `ssot-index.md`；其余历史 Markdown 已清理。
+> **状态**：当前唯一事实源。仓库中的产品、架构、设计、运维结论只保留在本文件；其余历史 Markdown 已清理（旁支文档的白名单见 §16）。
 >
-> **快照**：2026-11-14，工作树（最后提交 `c0f46f5` 之上；新增日志来源 IP 与请求/响应头透出、用户密钥可复制可重置、渠道列表批量操作、看板热力图固定 7 天窗口、试验页密钥改内存态、内部标识统一改名，见 ADR-050…056）。
+> **快照**：2026-11-14 起持续更新（`c0f46f5` 是开发仓的提交号，生产仓历史里查不到，不要用它做 `git show`；生产仓以本文件的 §14 交付历史为准）。本批新增日志来源 IP 与请求/响应头透出、用户密钥可复制可重置、渠道列表批量操作、看板热力图固定 7 天窗口、试验页密钥改内存态、内部标识统一改名，见 ADR-050…056。
 >
 > **权威顺序**：运行代码与测试 > 本文件 > 任何历史叙述。发现冲突时，先改代码或本文件，不新增旁支文档。
 >
@@ -46,7 +46,7 @@
 |---|---|
 | 后端 | Python 3.12+、FastAPI 0.115、SQLAlchemy 2.0 async、aiosqlite、httpx 0.28、PyJWT、cryptography、LiteLLM 1.108.4 |
 | 前端 | Vite 7、React 19、TypeScript 5.9、React Router 7、TanStack Query 5、react-hook-form、zod、Tailwind 3、lucide-react |
-| 测试 | pytest 8 + pytest-asyncio；Vitest 3 + Testing Library；Playwright 视觉回归 |
+| 测试 | pytest 8 + pytest-asyncio；Vitest 3 + Testing Library（视觉回归为人工验收，无自动化截图基线） |
 | 存储 | SQLite（WAL、busy_timeout=15s、手写增量迁移） |
 
 ### 2.2 运行拓扑
@@ -66,9 +66,10 @@
 │           l06_api(deps,errors,schemas,routers/*) l07_bootstrap(app_factory)
 │  ├─ tests/    pytest
 │  └─ scripts/  seed.py、manual_smoke.py
-├─ web/   src/{components,lib,pages,test,__tests__}/、e2e/（Playwright）、public/
-├─ docs/  ssot.md（本文件）、INDEX.md、adr/、GLOSSARY.md、ssot-index.md、PERFORMANCE_REPORT.md、
-│         testing.md、upstream_transport.md、postgres.md
+├─ web/   src/{components,lib,pages,test,__tests__}/、public/
+├─ docs/  ssot.md（本文件）、INDEX.md、adr/、GLOSSARY.md、PERFORMANCE_REPORT.md、
+│         testing.md、ui.md、upstream_transport.md、upstream-reasoning.md、postgres.md、
+│         contracts/、research/、agents/
 └─ .scratch/  基准原始数据与脚本，非事实源，不随产品交付
 ~~~
 
@@ -88,11 +89,11 @@ cd api; $env:PYTHONPATH = 'src'; .\.venv\Scripts\python.exe -m pytest -q
 
 ~~~powershell
 cd web; npm test -- --run
-npm run build; npm run test:visual; npm run test:visual:update
+npm run build; npm run lint:ui
 ~~~
 
 > 本机若存在全局 `PYTHONPATH`，必须显式设为当前 `api/src`，否则可能导入宿主环境中的错误包。
-> 全量套件最近一次实跑**通过**（基线以最近一次实跑为准，复现命令与当次结果见 `docs/testing.md`）；**不记录用例数、通过数与耗时秒数**。实跑约束：单次 Shell 调用超过 180s 会超时，宜放后台 job；与 vitest/Playwright 并行会互相拖慢并产生假失败，全量回归务必独占跑。
+> 全量套件最近一次实跑**通过**（基线以最近一次实跑为准，复现命令与当次结果见 `docs/testing.md`）；**不记录用例数、通过数与耗时秒数**。实跑约束：单次 Shell 调用超过 180s 会超时，宜放后台 job；与 vitest 并行会互相拖慢并产生假失败，全量回归务必独占跑。
 
 ---
 
@@ -153,7 +154,7 @@ npm run build; npm run test:visual; npm run test:visual:update
 
 熔断与故障都是冷却的**自动触发源**，不是与冷却并列的第三种措施；排期窗口是冷却的第三种触发源。判据唯一：`banned_until` 有无（存储层不新增状态列、不改字段名）。
 
-**实现状态（ADR-070 尚未落地）**：当前直连目录在定时冷却期间会从 `/v1/models` 消失（`l05_service/catalog.py` → `l06_api/routers/v1.py`），与上句相反；同一状态下自动组合保留成员但标不可用（`l05_service/groups.py`）。本节是目标口径，改动点清单见 ADR-070 §8，术语成因见 ADR-070 §1.1 与 `docs/scratch/terminology-audit.md`。
+**实现状态（ADR-070 已落地，2026-11-15 转正）**：`l05_service/catalog.py` 的 `is_published()` 让**冷却中**的条目继续出现在 `/v1/models`（客户端因此知道名字仍在、何时恢复），只有**永久封禁**（无到期时刻）的条目才消失；自动组合与隐式分组以 `published_combo_ids` / `group.published` 为准，只要还有一个叶子可用就继续广告该名字。本节即当前口径。术语成因见 ADR-070 §1.1 与 `docs/GLOSSARY.md` 的封禁 / 冷却条目。
 
 探测状态只有 `ok / timeout / error / unknown`；`unknown` 只表示“从未探测”，不会随时间自动过期，展示时必须带 `probed_at`。
 
@@ -213,6 +214,7 @@ npm run build; npm run test:visual; npm run test:visual:update
 ### 4.2 前端结构
 
 - 页面通过 `web/src/lib/api.ts` 访问后端；TanStack Query 管理服务端状态。
+  > 目录布局告：`web/src/lib/` 是前端共享模块目录（`api.ts`、`format.ts`、`time.tsx`、`utils.ts` 等 33 个模块），曾被 `.gitignore` 的 Python 打包规则 `lib/` 误伤而未入库；规则已锚定到仓库根修复。
 - UI 控件以 shadcn copy-in 源码为准（`components/ui/*`，Radix 底座，new-york v3 风格冻结），页面不得再写第二套实现；图表、业务组合控件与布局骨架仍自有实现（ADR-064 / ADR-066）。不引 antd、不引运行时组件库，也不引 TanStack Table。
 - 认证用 `AuthProvider` + `ProtectedRoute` / `PublicOnlyRoute`；JWT 存本地。
 - 主题与时间显示分别由 `lib/theme.ts`、`lib/time.tsx` 统一管理。
@@ -276,6 +278,7 @@ npm run build; npm run test:visual; npm run test:visual:update
 - `finish_reason` 或 `[DONE]` 都是终态；收尾 **error 优先**：`self.error` 非空一律按错误记账（即使已见终态标记），否则按 `terminal` 判 200，再否则 `499/STREAM_STOPPED`。
 - 终态标记后客户端断开属正常 teardown，**不记 499**；终态前断开且无 error 记 `499` + `STREAM_STOPPED`、attempt 标 `stopped`，后台 finalize 仍释放 registry。流中错误只发一个 SSE error 事件并记 `STREAM_ABORTED`，不发伪造 `[DONE]`。
 - 熔断按真实结局记账（ADR-051）：`error → record_failure`（429/rate_limit 标限流）、`http 200 → record_success`、`499` 不记任何一侧；流式 prime 期（`log_success=False`）不记成功，只有完整跑完才清零连续失败计数。
+- **熔断状态必须回写 catalog 快照**（`USAGE_PIPELINE=memory`）：准入只读进程内快照，而快照不按熔断流量换版本（版本只跟管理写走），所以每次 `record_failure` / `record_success` commit 之后都要把行状态补回缓存，否则准入继续读到「正常」并放行——熔断静默失效，坏渠道持续吃流量。`record_failure` 的调用方不一定是请求 session：流式结局由 finalizer 记，它自己开 session，不经过 `get_db`，因此没有 `session.info["catalog"]` 指针。`config_catalog.catalog_for_session` 的取值顺序是「session 显式指针 → 按 `session.bind` 反查 engine 绑定」，两条都不能少；回归用例见 `tests/test_breaker_api.py::test_stream_abort_feeds_the_breaker_in_the_memory_pipeline`（classic 路径看不出这个缺陷，因为它每请求重读行）。
 - usage 只在上游原始 SSE 真观察到 usage 对象时才信任，否则按转发文本字符估算并置 `usage_estimated=True`；LiteLLM 可能补伪 finish，`_is_synthetic_finish()` 丢弃它，避免把「usage 结束」误判为「模型完成」。
 - 连接失败/超时映射：先查 cause chain 的 `httpx.ConnectTimeout/ConnectError` → `connection`；再按异常名含 timeout / HTTP 408 → `timeout`；最后按 429/401/403/404/4xx/5xx 分类。
 
@@ -507,7 +510,7 @@ npm run build; npm run test:visual; npm run test:visual:update
 
 ## 9. 前端信息架构与视觉规范
 
-> 决策理由链：ADR-031（as-built 收敛到 Tailwind + 手写 UI）→ ADR-062（不引 antd，自建基元）→ ADR-063（缺口件取 shadcn registry 源码，Tailwind 3.4 不动）→ **ADR-064（控件层全量迁到 shadcn copy-in + Tailwind 4，取代 ADR-062 / ADR-063）**；图表色板见 ADR-040。本节只写现状事实，不重复理由；界面规则见 `docs/ui-standards.md`。
+> 决策理由链：ADR-031（as-built 收敛到 Tailwind + 手写 UI）→ ADR-062（不引 antd，自建基元）→ ADR-063（缺口件取 shadcn registry 源码，Tailwind 3.4 不动）→ **ADR-064（控件层全量迁到 shadcn copy-in + Tailwind 4，取代 ADR-062 / ADR-063）**；图表色板见 ADR-040。本节只写现状事实，不重复理由；界面规则见 `docs/ui.md`。
 
 ### 9.1 路由
 
@@ -564,13 +567,13 @@ npm run build; npm run test:visual; npm run test:visual:update
 | 层 | 基线 |
 |---|---|
 | 后端 | pytest 全量套件最近一次实跑**通过**；基线以最近一次实跑为准，复现命令见 `docs/testing.md`（不记录用例数/通过数/耗时，见 §16 计数纪律） |
-| 前端 | Vitest 全量最近一次实跑**通过**，`tsc --noEmit` exit 0；Playwright 视觉用例最近一次实跑**通过**（基线在 `web/e2e/__screenshots__`）。不记录用例数与耗时 |
+| 前端 | Vitest 全量最近一次实跑**通过**，`tsc --noEmit` exit 0，`npm run lint:ui` PASS。不记录用例数与耗时 |
 | 构建 | `npm run build` = `tsc --noEmit && vite build`；产物文件名与体积不作为基线记录；本机注意：esbuild 在系统 TEMP 下会报 `remove ...\Temp\esbuild-* : Access is denied`，须把 `TEMP`/`TMP` 指向仓库内目录（如 `web/.build-tmp`）再构建 |
-| 视觉 | Playwright 视觉用例固定 1440×900 + `Asia/Shanghai`，全部 `/api/**` 用 `page.route` mock；基线在 `web/e2e/__screenshots__`（场景数与耗时不作为基线） |
+| 视觉 | **无自动化基线**：Playwright 截图套件已于 2026-11-18 移除（基线从未入库、快照不宜公开）。视觉验收改为人工：起网关 → 打开 UI → 逐页看。规范条款见 `docs/ui.md` |
 | 后端重点覆盖 | app 导入/健康、鉴权、正文日志、熔断、渠道/密钥/模型、组合、看板、E2E 冒烟、failover、假上游、自动组合、延迟、日志、探测、脱敏、响应改写、保留、轮次、计划、schema、设置、流式、时间序列 |
 
 - 后端约束：必须 `$env:PYTHONPATH='src'`（否则全局 PYTHONPATH 可能导入宿主 pydantic）；无 pytest-timeout 插件，不要用整个套件做快速回归；分批时单批 ≤4 文件，耗时以最近一次实跑为准。
-- 前端约束：单文件测试远快于全量；UI 改动后必须跑 `npm run test:visual`，确认预期变化后再 `test:visual:update`。
+- 前端约束：单文件测试远快于全量；UI 改动后必须人工过一遍相关页面（无自动化视觉基线），并跑 `npm run lint:ui`。
 
 ---
 
@@ -732,7 +735,7 @@ npm run build; npm run test:visual; npm run test:visual:update
 | 2026-11-11 MVP | 22 张票据：骨架/鉴权/DB、渠道与模型、组合与 priority 路由、failover/熔断、计划窗口、探测、请求/响应改写、日志、看板、密钥、设置、E2E 冒烟 |
 | 2026-11-12 UX v2 | 渠道列表/详情合并、多密钥、模型参数统一、日志紧凑行与详情抽屉、改写编辑器 v2、看板分位与 16 色、响应式与视觉回归 |
 | 2026-11-12 性能与传输 | 三栈对比与单实例阶梯压测，定位每请求新建 client 的固定开销并改为共享 client；LiteLLM 可行性验证 → 双传输实现 → usage/伪 finish/错误映射/断流/终态/时延修复；生产化：连接池、四层超时、全局重试预算、SIGTERM 排空、DB 池、冷启动预热 |
-| 2026-11-12 文档 | 全部 Markdown 压缩到 `docs/ssot.md` + `docs/ssot-index.md`，删除其余文档与空目录（2026-11-14 起重新启用 `docs/adr/`，见 §16） |
+| 2026-11-12 文档 | 全部 Markdown 压缩到 `docs/ssot.md`，删除其余文档与空目录（2026-11-14 起重新启用 `docs/adr/`，见 §16） |
 | 2026-11-13 分层与口径 | 后端分层下沉：SQL 与条件更新收进 `l04_repo/repo.py`，上游 HTTP 只走 `llm/gateway.py` 的 `upstream_probe_*` seam；统计口径统一：看板/日志/日聚合/时序共用 `aggregates.usage_totals`，估算行不计 token 与成本；前端格式化单一来源：`formatDateTime` / `formatCount` / `formatPercent`，删除兼容别名；三处 tablist 统一用 `useRovingTabs`；文档全量核对后修正 17 处偏差 |
 
 | 2026-11-14 ADR 化 | 决策从 §13 压缩表迁到 `docs/adr/`（一条决策一文件，格式见 ADR-000，ADR-001–062）；新增 `docs/INDEX.md` 按界面导航；本文收敛为机制与口径事实源 |
@@ -749,10 +752,10 @@ npm run build; npm run test:visual; npm run test:visual:update
 4. **就绪探针**：当前只有 `/health`；若部署平台要求 `/readyz`，需要新增 DB ping + 上游 client 就绪 + `StreamRegistry.closing` 检查。
 5. **LiteLLM 私有协议边界**：是否对特定渠道强制 httpx，以保留未知字段/响应头删除能力。
 6. **`.scratch/` 去留**：已加进 `.gitignore`（不进版本库）。目录里是迁移期的一次性报告、脚本与基准原始数据，保留仅供复查，可随时清理。
-7. **视觉基线**：UI 改动后已重跑 Playwright 视觉回归，基线无漂移；后续 UI 改动仍需 `npm run test:visual`。
+7. **视觉基线（已移除，2026-11-18）**：Playwright 截图套件与 `playwright.config.ts` 已删除，`@playwright/test` 依赖同步移除。原基线目录 `web/e2e/__screenshots__` 从未入库，任何全新克隆都无法跑通该套件；快照本身也因含渠道标识不宜公开。视觉验收改为人工。
 8. **日志深翻页**：日志列表已改为 25/50/100/200 分页（后端上限 200），尚未实现游标分页；单页 200 条以外的翻页仍受此上限约束。
 9. **MAX_ATTEMPTS 配置项**：环境变量 `MAX_ATTEMPTS`（默认 3）在代码里没有任何读取点，组合轮数实际由 `combos.max_attempts` 列（默认 3、取值 1–50）决定；该配置是删除还是接到组合默认值上，待定。
-10. **UI 迁移（已落地，ADR-064）**：控件层全量迁到 shadcn copy-in（Radix 底座）并把 Tailwind 升到 4；ADR-062 / ADR-063 的增量路线已被取代。终态门禁：`npm run lint:ui` = 0 error / 19 warning（19 全是 vendored 例外，`--max-warnings 19` 已封顶；文件数取当次 `--json`，不要照抄快照数）、`npm run build` 通过、单元 27 文件 214 条全绿、视觉 7 张基线全绿。现状台账见 `docs/ui-adoption-map.md`（§9 门禁阶梯、§10 门禁真实运行环境、§11 欠账表），界面规则唯一正文见 `docs/ui-standards.md`；升级步骤与旧台账已归档到 `docs/archive/`（只作证据、不作权威）。
+10. **UI 迁移（已落地，ADR-064）**：控件层全量迁到 shadcn copy-in（Radix 底座）并把 Tailwind 升到 4；ADR-062 / ADR-063 的增量路线已被取代。终态门禁：`npm run lint:ui`、`npm run build`、`npm test -- --run` 三项全绿（具体条数取当次 `--json`，不照抄快照数——§16 计数纪律）。界面规则唯一正文见 `docs/ui.md`；升级步骤与旧台账在开发仓 `docs/archive/`（只作证据、不作权威，不随生产仓同步）。
 11. **可用性二分的落地（ADR-070，status=accepted）**：术语已定（封禁 / 冷却，词义见 `GLOSSARY.md` 的 §4），实现已进工作树（跳过原因拆分、可见性、排期 v2），随本批提交；ADR-070 §7 的 5 个决策点（批量端点形态、`Retry-After` 取值、跳过原因码拆到什么粒度等）已按推荐项定下并落地，不再等拍板。
 12. **日志查询语法接线（ADR-071）**：`l03_domain/query_lang/` 已合并并有单测，**未接线**到 `repo.py` / `l05_service/log_views.py`（避免与后端正在改的两处并行冲突）；接线时筛选控件从「拼查询参数」改为「拼语法」。
 13. **`attempts` 行化实施（ADR-072）**：设计已定，等 `task-101`（冷却后端改 `repo.py` / routing）落地后再动，避免同文件互相覆盖；DDL、索引与三阶段开关见 §7。
@@ -762,10 +765,11 @@ npm run build; npm run test:visual; npm run test:visual:update
 
 ## 16. 文档治理
 
-- **文档职责边界**：`docs/ssot.md` = 机制与口径的事实源；`docs/adr/` = 决策与理由（一条决策一文件，格式见 `docs/adr/ADR-000.md`）；`docs/INDEX.md` = 按界面导航（每个页面 → 接口 / ADR / ssot 章节 / 测试）；`docs/GLOSSARY.md` = 词义表；`docs/ssot-index.md` = 总入口（只指路，不承载事实）。允许存在的旁支文档仅两类：**实测证据**（`docs/PERFORMANCE_REPORT.md`、`docs/testing.md`）与**操作手册/专项说明**（`docs/upstream_transport.md`、`docs/postgres.md`）——它们只放数字、命令与差异，机制与配置仍以本文件为准，冲突时以代码与测试为准并回头修它们。
+- **文档职责边界**：`docs/ssot.md` = 机制与口径的事实源；`docs/INDEX.md` = 文档总入口与按界面导航；`docs/adr/` = 决策与理由（一条决策一文件，格式见 `docs/adr/ADR-000.md`）；`docs/GLOSSARY.md` = 词义表；`docs/contracts/` = 对外契约。允许存在的旁支文档仅三类：**实测证据**（`docs/PERFORMANCE_REPORT.md`、`docs/testing.md`）、**操作手册/专项说明**（`docs/upstream_transport.md`、`docs/upstream-reasoning.md`、`docs/postgres.md`、`docs/ui.md`）、**agent 工作流配置**（`AGENTS.md`、`docs/agents/`，不承载项目事实）——旁支文档只放数字、命令与差异，机制与配置仍以本文件为准，冲突时以代码与测试为准并回头修它们。
 - 改「词义」先改 `GLOSSARY.md`，改「行为/字段/参数」改本文件；两处冲突以本文件为准并回头修词义表。
 - **计数纪律**：不记录随手就变的数字——用例数、测试文件数、通过数、耗时秒数、构建产物体积。事实源只写「全量套件最近一次实跑通过」这类定性结论；具体数字与复现命令放 `docs/testing.md`（测试实测）与 `docs/PERFORMANCE_REPORT.md`（性能测量）。交付历史（§14）里的当日数字保留为历史事实，但不得当作当前基线。
-- 代码变更必须同步更新本文件的相关章节；测试基线变化必须更新 §10；配置新增必须同步 `api/.env.example` 与本文件 §8。
-- 历史文档（`docs/00`–`08`、`docs/agents/`、`docs/archive/`、`docs/research/`、`docs/specs/`、根 `README.md`、`AGENTS.md`、`web/README.md`）已删除；其结论已压缩进本文件。`docs/adr/` 于 2026-11-14 重新启用，但用途收窄为「一条决策一文件」，只收录值得单独解释的决策；`GLOSSARY.md` 于 2026-11-12 按用户要求重建为纯词义表（见上一条）。
+- 代码变更必须同步更新本文件的相关章节；测试基线变化必须更新 §10；新增配置必须同步 `api/.env.example` 与本文件 §8（启动脚本**不**生成 `.env`，缺失时只告警并使用内置开发默认值）。
+- 历史文档（`docs/00`–`08`、`docs/archive/`、`docs/specs/`、根 `README.md`、`web/README.md`）已删除；其结论已压缩进本文件。`docs/adr/` 于 2026-11-14 重新启用，但用途收窄为「一条决策一文件」，只收录值得单独解释的决策；`GLOSSARY.md` 于 2026-11-12 按用户要求重建为纯词义表（见上一条）。`docs/research/`、`docs/contracts/`、`docs/ui.md` 不在删除范围：前者是证据与决策依据、非规范正文，后两者是契约与前端规范正文。ADR 正文里指向开发仓历史文档（`docs/archive/`、`ui-standards.md` 等）的指针按 `docs/adr/ADR-000.md`「失效指针的读法」处理，不算死链。
+- **`AGENTS.md` 与 `docs/agents/` 于 2026-11-18 重建**，用途收窄为 agent 工作流配置（issue tracker 位置、triage 标签取值、领域文档消费规则），**不承载项目事实**；机制与口径仍以本文件为准。同时 `.scratch/` 的 `.md` 放行进 git（规格与票据入库，压测 JSON/脚本照旧忽略），issue tracker 采用本地 Markdown。
 - `.scratch/` 下的基准 JSON/脚本是原始证据，不是事实源；与本文件冲突时以本文件为准。
 - `/readyz` 事实：仓库从未实现，前端零引用；不要记录为“已删除”，当前只有 `/health`。
