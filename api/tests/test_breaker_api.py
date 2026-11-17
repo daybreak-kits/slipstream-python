@@ -6,12 +6,16 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
+import httpx
 import pytest
+import pytest_asyncio
 from sqlalchemy import text, update
 
+from l01_core.config import Settings
 from l01_core.timeutil import now_ms
 from l04_repo import orm
 from l05_service.routing import Candidate, admit_candidate
+from l07_bootstrap.app_factory import create_app
 from tests.fake_upstream_server import FakeUpstreamServer
 
 
@@ -631,3 +635,95 @@ async def test_stream_abort_feeds_the_failure_breaker(client, upstream, app):
     listed = await _api_model(client, headers, channel["id"], model["id"])
     assert listed["visible_status"] == "open"
 
+
+@pytest_asyncio.fixture
+async def memory_app(database_url, tmp_path) -> Iterator[Any]:
+    """App wired for the zero-SQL pipeline, which serves admission from the
+    in-process catalog snapshot instead of reading the row per request."""
+    settings = Settings(
+        _env_file=None,
+        database_url=database_url,
+        jwt_secret="test-jwt-secret-0123456789abcdef0123456789abcdef",
+        jwt_expire_minutes=60,
+        admin_username="admin",
+        admin_password="admin",
+        models_dev_enabled=False,
+        usage_pipeline="memory",
+        usage_wal_dir=str(tmp_path / "usage"),
+        # Keep the background sink out of the assertions.
+        usage_sink_interval_ms=60_000,
+    )
+    app = create_app(settings=settings, database_url=database_url)
+    async with app.router.lifespan_context(app):
+        yield app
+
+
+async def test_stream_abort_feeds_the_breaker_in_the_memory_pipeline(
+    memory_app, upstream
+):
+    """Same guarantee as the classic case, but the breaker row has to travel
+    back into the cached snapshot.
+
+    A streaming request reports its outcome from the finalizer, which opens its
+    own session. That session never passes through ``get_db``, so it carries no
+    catalog pointer; before the engine-binding fallback in
+    ``config_catalog.catalog_for_session`` the write-back silently did nothing
+    and admission kept reading the cached row as healthy -- every request after
+    the trip was routed upstream again. Classic mode missed this because it
+    re-reads the row per request.
+    """
+    assert memory_app.state.settings.zero_sql_pipeline is True
+    transport = httpx.ASGITransport(app=memory_app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
+        headers = await _token(client)
+        channel = await _channel(
+            client,
+            headers,
+            upstream.base_url + "/openai-stream-broken",
+            name="断流渠道",
+            slug="brk-abort-mem",
+        )
+        model = await _model(
+            client,
+            headers,
+            channel["id"],
+            call_model="abort-leaf",
+            cooldown={"failure_threshold": 2, "cooldown_s": 60},
+        )
+        key = await _key(client, headers)
+
+        for _ in range(2):
+            response = await client.post(
+                "/v1/chat/completions",
+                **_chat_stream(key, "brk-abort-mem/abort-leaf"),
+            )
+            assert response.status_code == 200
+            assert (
+                json.loads(
+                    next(
+                        data
+                        for name, data in _sse_events(response.text)
+                        if name == "error"
+                    )
+                )["error"]["code"]
+                == "STREAM_ABORTED"
+            )
+        stored = await _stored_until(
+            memory_app,
+            model["id"],
+            lambda s: s["health_status"] == "open" and s["consecutive_failures"] == 2,
+        )
+        assert stored["cooldown_until"] > now_ms()
+
+        # The cached snapshot must already reflect the trip: this request is
+        # admitted from memory, so a stale row here means it reaches upstream.
+        posts_before = len(upstream.find("POST", "/chat/completions"))
+        third = await client.post(
+            "/v1/chat/completions",
+            **_chat_stream(key, "brk-abort-mem/abort-leaf"),
+        )
+        assert third.status_code == 503
+        assert third.json()["error"]["code"] == "NO_AVAILABLE_CHANNEL"
+        assert len(upstream.find("POST", "/chat/completions")) == posts_before

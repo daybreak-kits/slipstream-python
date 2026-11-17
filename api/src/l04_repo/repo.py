@@ -1434,6 +1434,20 @@ def bind_write_catalog(engine: Any, catalog: Any) -> None:
         pass
 
 
+def write_catalog_for(engine: Any) -> Any:
+    """The catalog bound to ``engine``, or ``None``.
+
+    Used by sessions that never went through the request dependency (the
+    stream finalizer), so they can still patch the snapshot after a breaker
+    write instead of leaving a stale row that admission reads as healthy.
+    """
+    sync_engine = getattr(engine, "sync_engine", engine)
+    try:
+        return _WRITE_CATALOGS.get(sync_engine)
+    except TypeError:
+        return None
+
+
 def _mark_bound_catalog_dirty(sync_session: Any) -> None:
     try:
         bind = sync_session.get_bind()

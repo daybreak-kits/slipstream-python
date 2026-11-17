@@ -306,7 +306,30 @@ def bind_catalog(
 
 
 def catalog_for_session(session: AsyncSession) -> Catalog | None:
+    """The catalog this session should read/write the snapshot through.
+
+    Request sessions carry an explicit pointer (``l06_api.deps.get_db``). A
+    session opened outside a request -- the stream finalizer in
+    ``l05_service.chat`` is the one that matters -- has none, yet still has to
+    keep the shared snapshot in step with the breaker row it just committed.
+    Fall back to the engine binding, which is how ``repo`` already reaches the
+    catalog for write invalidation.
+    """
     try:
-        return session.info.get(_CATALOG_SESSION_KEY)
+        bound = session.info.get(_CATALOG_SESSION_KEY)
     except Exception:  # noqa: BLE001
         return None
+    if bound is not None:
+        return bound
+    return _catalog_for_engine(getattr(session, "bind", None))
+
+
+def _catalog_for_engine(engine: Any) -> Catalog | None:
+    if engine is None:
+        return None
+    sync_engine = getattr(engine, "sync_engine", engine)
+    try:
+        return repo.write_catalog_for(sync_engine)
+    except Exception:  # noqa: BLE001
+        return None
+
