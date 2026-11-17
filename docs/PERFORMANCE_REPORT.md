@@ -500,10 +500,11 @@ client 直连 agw（:9103），Python 仅旁路：非流式计费数据现成（
 
 | 配置 | 重载后平台 RSS | HWM | 延迟代价 |
 |---|---|---|---|
-| 默认（无 env） | 999MB（P1.5 后 851MB） | 1046MB（P1.5 后 888MB） | 0 |
+| 默认（无 env，P1.5 后） | 851MB | 888-903MB | 0（膝点 ~310 线速基准） |
 | `MALLOC_ARENA_MAX=2`+`TRIM=128KB` | 750MB | 963MB | 未测出（收益也弱） |
 | +`MMAP_THRESHOLD=128KB` | **400MB** | 786MB | **大 body p50 数倍劣化**（缺页风暴，非流式 256 完成率 86%→51%） |
 | +`MMAP_THRESHOLD=64KB` | 744MB | 961MB | 同上且封顶更差 |
+| `PYTHONMALLOC=mimalloc`（3.14 内置） | 778MB（且 settle 有回落行为） | 916MB | **膝点 ~310→~285**（304 QPS 从线速变 shedding：2307/3040、p50 530ms）；亚膝点延迟无差异 |
 
 结论：**生产默认不启用 allocator env**；内存受限部署可显式启用全三件并在延迟与 RSS 间拍板。glibc 动态 mmap 阈值机制与同类案例（CPython #109534、uvicorn #2078）见 `docs/scratch/research/python-gateway-memory-2026-11-18.md`。
 
