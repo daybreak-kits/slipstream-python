@@ -41,7 +41,7 @@ export type {
 /** 行内代码：--text-2xs（11/16）是项目的 meta 字号层级，别写任意值。 */
 const CODE_CLASS = "rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-2xs text-title";
 const SECTION_TITLE_CLASS =
-  "mb-2 text-2xs font-semibold uppercase tracking-wide text-faint";
+  "mb-2 text-2xs font-semibold uppercase tracking-[0.08em] text-faint";
 
 /** 弹窗与内联面板共用的正文：操作符表 + 分组字段表 + 示例 + 口径说明。 */
 function SyntaxReference() {

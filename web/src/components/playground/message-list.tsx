@@ -1,4 +1,4 @@
-import { Brain, ChevronDown, RotateCcw, Sparkles } from "lucide-react";
+import { Brain, ChevronDown, MessageSquare, RotateCcw } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { Alert } from "@/components/ui/alert";
@@ -185,8 +185,9 @@ export function MessageList({ messages, onRetry }: MessageListProps) {
     return (
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-center py-10">
+          {/* 空态图标用对话语义（MessageSquare），不用 sparkle 系装饰（ui.md §2.4 AI 装饰图标禁令）。 */}
           <Empty
-            icon={Sparkles}
+            icon={MessageSquare}
             title="还没有对话"
             description="选一个模型，在下面的输入框里发第一条消息。聊天记录只保存在这台设备的浏览器里，不写后端。"
           />

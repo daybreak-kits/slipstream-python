@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 
 interface PagePlaceholderProps {
@@ -24,8 +25,7 @@ export function PagePlaceholder({
 }: PagePlaceholderProps) {
   return (
     <div className="animate-fade-up">
-      <h1 className="text-h1 font-semibold tracking-[-0.02em] text-title">{title}</h1>
-      <p className="mt-1.5 max-w-2xl text-2sm text-muted-foreground">{description}</p>
+      <PageHeader title={title} description={description} />
 
       <Card className="mt-7 flex min-h-80 flex-col items-center justify-center border-dashed bg-surface px-6 py-14 text-center">
         <span className={cn("flex h-12 w-12 items-center justify-center rounded-xl", accents[accent])}>

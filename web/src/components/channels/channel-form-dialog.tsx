@@ -200,7 +200,7 @@ export function ChannelFormDialog({ open, onOpenChange, onCreated }: ChannelForm
           </Field>
 
           <div className="rounded-control border border-border bg-surface-2 px-3.5 py-3">
-            <p className="text-2xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">最终请求地址</p>
+            <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">最终请求地址</p>
             <div className="mt-1.5 flex items-start gap-2">
               <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
               <div className="min-w-0 space-y-1">

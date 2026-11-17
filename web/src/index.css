@@ -184,8 +184,6 @@
   /* Login page: fixed deep-navy palette, intentionally theme-independent. */
   --login-ink: #0b1020;
   --login-ink-2: #0e1526;
-  --login-accent: #4f46e5;
-  --login-teal: #14b8a6;
   --login-teal-bright: #2dd4bf;
   --login-green: #4ade80;
   --login-amber: #fbbf24;
@@ -210,6 +208,13 @@
   --chart-14: #be123c;
   --chart-15: #0f766e;
   --chart-16: #7c2d12;
+
+  /* Sankey ribbon alpha (audit N3): the ribbons reuse the 16-slot palette via
+     var(--chart-N); only the fill-opacity is tiered per theme. 0.22 keeps the
+     light look; dark needs a higher alpha because the dark pastel set over the
+     dark surface reads near-black (≈1.5:1) — 0.55 lands at ≈3:1 (WCAG 1.4.11
+     for thin graphics) while keeping ribbon overlaps translucent. */
+  --flow-ribbon-opacity: 0.22;
 
   /* shadcn-style aliases (ADR-064 batch 1+): new names only, every value
      points at an existing token. Declared on :root, which is the same element
@@ -304,6 +309,17 @@
   --chart-14: #fb7185;
   --chart-15: #5eead4;
   --chart-16: #fdba74;
+
+  /* Dark set is bright pastels, but at low alpha they still sink into the
+     surface (audit N3); only the ribbon alpha changes, never the hue slots. */
+  --flow-ribbon-opacity: 0.55;
+}
+
+/* Sankey ribbons opt into the tiered alpha with this class; the fill itself
+   stays var(--chart-N) from chart-colors.ts, so the 16-slot palette is
+   untouched and the light theme renders exactly as before. */
+.flow-ribbon {
+  fill-opacity: var(--flow-ribbon-opacity);
 }
 
 @layer base {

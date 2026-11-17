@@ -797,15 +797,6 @@ export interface PlaygroundMessage {
   attachments?: PlaygroundAttachment[];
 }
 
-/** combobox 的本地过滤：调用串、渠道名与上游模型名任一命中即保留。 */
-export function filterCatalogEntries(items: CatalogEntry[], query: string): CatalogEntry[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return items;
-  return items.filter((item) =>
-    `${item.name} ${item.channel_name} ${item.upstream_model}`.toLowerCase().includes(needle),
-  );
-}
-
 /** 空串 → undefined；非数字 → undefined（由 validateChatParams 报错）。 */
 export function parseOptionalNumber(raw: string | undefined): number | undefined {
   const text = (raw ?? "").trim();

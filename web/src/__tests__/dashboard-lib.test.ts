@@ -200,12 +200,13 @@ describe("dashboardKpis", () => {
   });
 
   it("mentions estimated rows only when the backend reports them", () => {
+    // hint 在 1440 宽五列合并卡里被 truncate：短到截断后头部仍可读，完整口径走悬停弹层。
     expect(dashboardKpis(summary).find((kpi) => kpi.key === "cache_hit_rate")?.hint).toBe(
-      "token 加权 · 8 条样本",
+      "token 加权 · 8 样本",
     );
     expect(
       dashboardKpis({ ...summary, estimated_rows: 3 }).find((kpi) => kpi.key === "cache_hit_rate")?.hint,
-    ).toBe("token 加权 · 8 条样本 · 3 条估算未计入");
+    ).toBe("token 加权 · 8 样本 · 3 条估算未计入");
   });
 
   it("expands the cache tile into ADR-068 cohorts A/B/C/D", () => {

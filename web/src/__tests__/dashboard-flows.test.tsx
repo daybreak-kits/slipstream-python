@@ -284,6 +284,23 @@ describe("FlowSankey hit areas and hover card", () => {
     await user.unhover(alice);
     await waitFor(() => expect(screen.queryByTestId("flow-node-tooltip")).not.toBeInTheDocument());
   });
+
+  it("tiers ribbon alpha via the theme class while the fill stays on the 16-slot palette", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(FLOWS)),
+    );
+    renderFlowCard();
+    await screen.findByRole("button", { name: /隐藏节点 alice/ });
+    const ribbons = document.querySelectorAll("path.flow-ribbon");
+    expect(ribbons.length).toBe(FLOWS.links.length);
+    for (const ribbon of ribbons) {
+      // 色相只走 ADR-040 的 16 槽槽位；透明度交给 .flow-ribbon（index.css 按
+      // :root/.dark 分档），不得出现内联 fill-opacity 旧值或槽位外取色。
+      expect(ribbon.getAttribute("fill")).toMatch(/^var\(--chart-(?:[1-9]|1[0-6])\)$/);
+      expect(ribbon.getAttribute("fill-opacity")).toBeNull();
+    }
+  });
 });
 
 describe("TrendCard tabs", () => {

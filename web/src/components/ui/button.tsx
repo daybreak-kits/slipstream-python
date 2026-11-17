@@ -17,7 +17,7 @@ const buttonVariants = cva(
           "border border-border-strong bg-surface text-title hover:bg-surface-2 active:bg-[var(--surface-2)]",
         ghost: "text-body hover:bg-surface-2 hover:text-title active:bg-[var(--border)]",
         danger:
-          "bg-danger text-white shadow-xs hover:bg-danger hover:brightness-95 active:bg-danger active:brightness-90",
+          "bg-danger text-primary-on shadow-xs hover:bg-danger hover:brightness-95 active:bg-danger active:brightness-90",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

@@ -1218,10 +1218,12 @@ export function dashboardKpis(data: DashboardSummary | undefined): DashboardKpi[
   const estimated = data?.estimated_rows ?? 0;
   const latencySamples = data?.latency?.samples ?? 0;
   const latencyHint = latencySamples < 5 ? `样本不足（${latencySamples}/5）` : "";
+  // 卡面 hint 在 1440 宽五列合并卡里只有 ~100px，会被 truncate：文案短到截断后
+  // 头部（加权口径 + 样本数）仍完整可读；估算明细留在下方 note 与悬停弹层里。
   const cacheHint =
     estimated > 0
-      ? `token 加权 · ${samples} 条样本 · ${estimated} 条估算未计入`
-      : `token 加权 · ${samples} 条样本`;
+      ? `token 加权 · ${samples} 样本 · ${estimated} 条估算未计入`
+      : `token 加权 · ${samples} 样本`;
   // 卡面一行只放 A，hover/focus 才展开 ADR-068 的 A/B/C/D 与各自分母、样本。
   const cacheableSessions = data?.cacheable_sessions ?? 0;
   const cacheSavedUsd = data?.cache_saved_usd ?? 0;

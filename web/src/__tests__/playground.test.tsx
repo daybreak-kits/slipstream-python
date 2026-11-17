@@ -186,7 +186,7 @@ async function chooseOption(user: UserEvent, triggerName: string, optionName: st
 /** 等目录加载完、默认模型选中后再操作。 */
 async function waitForModel() {
   await waitFor(() => {
-    expect(screen.getByRole("combobox", { name: "选择调用模型" })).toHaveValue(PUBLIC_NAME);
+    expect(screen.getByRole("combobox", { name: "选择调用模型" })).toHaveTextContent(PUBLIC_NAME);
   });
 }
 
@@ -433,21 +433,21 @@ describe("playground chat page", () => {
 
     await user.click(combobox);
     expect(combobox).toHaveAttribute("aria-expanded", "true");
-    expect(within(screen.getByRole("listbox", { name: "模型列表" })).getAllByRole("option")).toHaveLength(2);
+    const searchInput = screen.getByPlaceholderText("输入关键词搜索");
+    // 浮层 = 「清除选择」占位行 + 两个模型选项
+    expect(within(screen.getByRole("listbox")).getAllByRole("option")).toHaveLength(3);
 
-    await user.type(combobox, "beta");
-    expect(
-      within(screen.getByRole("listbox", { name: "模型列表" })).getAllByRole("option"),
-    ).toHaveLength(1);
+    await user.type(searchInput, "beta");
+    expect(within(screen.getByRole("listbox")).getAllByRole("option")).toHaveLength(2);
 
-    await user.clear(combobox);
-    await user.type(combobox, "zzz");
+    await user.clear(searchInput);
+    await user.type(searchInput, "zzz");
     expect(screen.getByText("没有匹配的模型")).toBeInTheDocument();
 
-    await user.clear(combobox);
-    await user.keyboard("{ArrowDown}");
-    await user.keyboard("{Enter}");
-    expect(combobox).toHaveValue(OTHER_NAME);
+    await user.clear(searchInput);
+    // 键盘：初始高亮在占位行，两次 ↓ 到第二个模型，Enter 选中并收起
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    expect(combobox).toHaveTextContent(OTHER_NAME);
     expect(combobox).toHaveAttribute("aria-expanded", "false");
 
     await user.type(screen.getByLabelText("消息内容"), "打个招呼");
@@ -527,7 +527,8 @@ describe("playground chat page", () => {
     expect(await screen.findByText("你好，我是测试模型。")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "清除记录" }));
-    const dialog = await screen.findByRole("alertdialog");
+    // 危险确认统一 alertdialog 语义 + 问句标题（ui.md §2.3）
+    const dialog = await screen.findByRole("alertdialog", { name: "清除聊天记录？" });
     await user.click(within(dialog).getByRole("button", { name: "清除" }));
 
     await waitFor(() => {
@@ -543,23 +544,23 @@ describe("playground chat page", () => {
 
     await waitForModel();
     await openParams(user);
-    await user.clear(screen.getByLabelText("temperature"));
-    await user.type(screen.getByLabelText("temperature"), "0.5");
-    await user.type(screen.getByLabelText("top_p"), "0.9");
-    await user.type(screen.getByLabelText("top_k"), "40");
-    await user.type(screen.getByLabelText("frequency_penalty"), "0.1");
-    await user.type(screen.getByLabelText("presence_penalty"), "-0.2");
-    await user.type(screen.getByLabelText("seed"), "7");
-    await user.type(screen.getByLabelText("max_tokens"), "256");
-    await user.type(screen.getByLabelText("max_completion_tokens"), "128");
-    await user.click(screen.getByLabelText("stop"));
+    await user.clear(screen.getByLabelText("温度 temperature"));
+    await user.type(screen.getByLabelText("温度 temperature"), "0.5");
+    await user.type(screen.getByLabelText("核采样 top_p"), "0.9");
+    await user.type(screen.getByLabelText("候选词数 top_k"), "40");
+    await user.type(screen.getByLabelText("频率惩罚 frequency_penalty"), "0.1");
+    await user.type(screen.getByLabelText("存在惩罚 presence_penalty"), "-0.2");
+    await user.type(screen.getByLabelText("随机种子 seed"), "7");
+    await user.type(screen.getByLabelText("最大输出 max_tokens"), "256");
+    await user.type(screen.getByLabelText("补全上限 max_completion_tokens"), "128");
+    await user.click(screen.getByLabelText("停止序列 stop"));
     await user.paste("STOP\n###");
-    await user.type(screen.getByLabelText("n"), "2");
-    await chooseOption(user, "response_format", "json_object");
+    await user.type(screen.getByLabelText("回复份数 n"), "2");
+    await chooseOption(user, "回复格式 response_format", "json_object");
 
-    await user.click(screen.getByLabelText("logprobs"));
-    await user.type(screen.getByLabelText("top_logprobs"), "2");
-    await user.type(screen.getByLabelText("user"), "u-1");
+    await user.click(screen.getByLabelText("词概率 logprobs"));
+    await user.type(screen.getByLabelText("词概率条数 top_logprobs"), "2");
+    await user.type(screen.getByLabelText("用户标识 user"), "u-1");
     await chooseOption(user, "思考", "reasoning_effort=low");
     await user.click(screen.getByLabelText("额外请求字段（JSON）"));
     await user.paste('{"reasoning_split": true}');
@@ -596,15 +597,15 @@ describe("playground chat page", () => {
 
     await waitForModel();
     await openParams(user);
-    await user.type(screen.getByLabelText("max_tokens"), "9000");
+    await user.type(screen.getByLabelText("最大输出 max_tokens"), "9000");
 
     expect(
       screen.getByText("max_tokens 需是 1–8192 的整数（上限取自所选模型）。"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
 
-    await user.clear(screen.getByLabelText("max_tokens"));
-    await user.type(screen.getByLabelText("max_tokens"), "8192");
+    await user.clear(screen.getByLabelText("最大输出 max_tokens"));
+    await user.type(screen.getByLabelText("最大输出 max_tokens"), "8192");
     expect(screen.queryByText(/上限取自所选模型/)).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("消息内容"), "边界值");
@@ -767,27 +768,30 @@ describe("playground chat page", () => {
     await waitForModel();
     await openParams(user);
 
-    // 说明不再常驻 label 下方：只有悬停参数名时才出现 tooltip（sr-only 副本供读屏，不算可见文案）。
+    // 说明不再常驻 label 下方：只有悬停标签时才出现 tooltip（sr-only 副本供读屏，不算可见文案）。
     expect(
       screen.queryByText("0.0–2.0 · 越高输出越随机，越低越确定", { ignore: ".sr-only" }),
     ).not.toBeInTheDocument();
-    const temperatureLabel = screen.getByText("temperature");
+    // 标签体系：中文业务名为主标签 + 参数名等宽副注；提示走 ui/tooltip，不再有 title/虚线样式。
+    const temperatureLabel = screen.getByText("温度").closest("label")!;
     expect(temperatureLabel).toHaveClass("cursor-help");
+    expect(temperatureLabel).not.toHaveAttribute("title");
     expect(temperatureLabel).toHaveAttribute("aria-describedby", "playground-temperature-hint");
     await user.hover(temperatureLabel);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
       "0.0–2.0 · 越高输出越随机，越低越确定",
     );
 
-    // 一屏多列：采样/输出/高级都是 6 列网格；长内容字段跨 2 列而不是独占整行。
-    expect(screen.getByLabelText("temperature").closest(".grid")).toHaveClass(
+    // 同质控件一行：短输入走共享网格（lg 3 列 / xl 6 列，窄屏 1→2 列退化）；
+    // textarea 类（系统提示词 / stop）整行独占，不与短控件同排。
+    expect(screen.getByLabelText("温度 temperature").closest(".grid")).toHaveClass(
       "xl:grid-cols-6",
     );
     expect(screen.getByLabelText("系统提示词").closest("[data-slot=field]")).toHaveClass(
-      "sm:col-span-2",
+      "col-span-full",
     );
-    expect(screen.getByLabelText("stop").closest("[data-slot=field]")).toHaveClass(
-      "sm:col-span-2",
+    expect(screen.getByLabelText("停止序列 stop").closest("[data-slot=field]")).toHaveClass(
+      "col-span-full",
     );
   });
 
@@ -841,20 +845,21 @@ describe("playground chat page", () => {
         ignore: ".sr-only",
       }),
     ).not.toBeInTheDocument();
-    const topLogprobsLabel = screen.getByText("top_logprobs");
+    const topLogprobsLabel = screen.getByText("词概率条数").closest("label")!;
     expect(topLogprobsLabel).toHaveClass("cursor-help");
     await user.hover(topLogprobsLabel);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
       "0–20 · 返回前 k 个候选词的概率",
     );
 
-    // 长字段的说明同样挂在参数名上：隐藏副本供 aria-describedby，悬停即可读。
+    // 长字段的说明同样挂在标签上：隐藏副本供 aria-describedby，悬停即可读；
+    // JSON 框整行独占（col-span-full），不再留右侧空洞。
     expect(
       screen.getByLabelText("额外请求字段（JSON）").closest("[data-slot=field]"),
     ).toHaveTextContent("顶层 JSON 对象 · 厂商私有字段原样合并进请求体，后写覆盖先写");
     expect(
       screen.getByLabelText("额外请求字段（JSON）").closest("[data-slot=field]"),
-    ).toHaveClass("sm:col-span-2");
+    ).toHaveClass("col-span-full");
   });
 
   it("keeps all four parameter groups collapsed by default with a caret on every header", async () => {
@@ -871,7 +876,7 @@ describe("playground chat page", () => {
       expect(header).toHaveAttribute("aria-expanded", "true");
       expect(header.querySelector("svg")).not.toBeNull();
     }
-    expect(screen.getByLabelText("logprobs")).toBeInTheDocument();
+    expect(screen.getByLabelText("词概率 logprobs")).toBeInTheDocument();
 
     // 折叠只收起本组控件，展开后输入过的值仍在。
     await user.click(screen.getByRole("button", { name: "输出" }));
@@ -879,12 +884,12 @@ describe("playground chat page", () => {
       "aria-expanded",
       "false",
     );
-    expect(screen.queryByLabelText("max_tokens")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("最大输出 max_tokens")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "输出" }));
-    expect(screen.getByLabelText("max_tokens")).toBeInTheDocument();
+    expect(screen.getByLabelText("最大输出 max_tokens")).toBeInTheDocument();
   });
 
-  it("exposes the full value of a possibly clipped select through its title", async () => {
+  it("exposes the full value of a possibly clipped select through a tooltip", async () => {
     mockStreamFetch([deltaChunk({ content: "好" }), FINISH, DONE]);
     const user = userEvent.setup();
     renderPage();
@@ -892,22 +897,28 @@ describe("playground chat page", () => {
     await waitForModel();
     await openParams(user);
 
-    // 触发器被列宽截断时，title 提供完整选中项（思考选项文案较长）。
-    const thinking = screen.getByRole("combobox", { name: "思考" });
-    expect(thinking).toHaveAttribute("title", "不指定（沿用渠道默认）");
-    expect(thinking.closest("[data-slot=field]")).toHaveClass("sm:col-span-2");
-    await chooseOption(user, "思考", "reasoning_effort=low");
-    expect(screen.getByRole("combobox", { name: "思考" })).toHaveAttribute(
-      "title",
-      "reasoning_effort=low",
-    );
+    // 触发器被列宽截断时，悬停看完整选中项（思考选项文案较长）；
+    // title= 不算 tooltip（ui.md §2.3），全站统一走 ui/tooltip。
+    // Radix 的 pointer grace 机制在「指针瞬移」的 jsdom 模拟下会吞掉第一次 pointermove
+    // （trigger pointerleave 会先置 isPointerInTransit，下一次 pointermove 才清掉），
+    // 所以统一连 hover 两次：第一遍清 transit，第二遍才真正打开；
+    // Select 交互期间焦点留在触发器上，tooltip 按 focus 常开、内容跟随选中项。
+    const responseFormat = screen.getByRole("combobox", { name: "回复格式 response_format" });
+    expect(responseFormat).not.toHaveAttribute("title");
+    await user.hover(responseFormat);
+    await user.hover(responseFormat);
+    expect(await screen.findByRole("tooltip", { name: "text（默认）" })).toBeInTheDocument();
 
-    const responseFormat = screen.getByRole("combobox", { name: "response_format" });
-    expect(responseFormat).toHaveAttribute("title", "text（默认）");
-    await chooseOption(user, "response_format", "json_object");
-    expect(screen.getByRole("combobox", { name: "response_format" })).toHaveAttribute(
-      "title",
-      "json_object",
-    );
+    await chooseOption(user, "回复格式 response_format", "json_object");
+    expect(await screen.findByRole("tooltip", { name: "json_object" })).toBeInTheDocument();
+
+    const thinking = screen.getByRole("combobox", { name: "思考" });
+    expect(thinking).not.toHaveAttribute("title");
+    await user.hover(thinking);
+    await user.hover(thinking);
+    expect(await screen.findByRole("tooltip", { name: "不指定（沿用渠道默认）" })).toBeInTheDocument();
+
+    await chooseOption(user, "思考", "reasoning_effort=low");
+    expect(await screen.findByRole("tooltip", { name: "reasoning_effort=low" })).toBeInTheDocument();
   });
 });

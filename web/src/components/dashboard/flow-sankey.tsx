@@ -346,7 +346,9 @@ export function FlowSankey({ data, metric }: FlowSankeyProps) {
                   key={`${link.source}->${link.target}`}
                   d={link.path}
                   fill={flowStageColor(link.colorIndex)}
-                  fillOpacity={0.22}
+                  // 丝带透明度按主题分档（.flow-ribbon → --flow-ribbon-opacity）：
+                  // 色相仍走 16 槽色板 var(--chart-N)，浅色 0.22 与旧渲染一致。
+                  className="flow-ribbon"
                   pointerEvents="none"
                 />
               ))}

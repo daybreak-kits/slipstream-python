@@ -306,3 +306,14 @@ describe("dashboard trend panel", () => {
     expect(requests.some((url) => url.includes("/api/dashboard/flows"))).toBe(false);
   });
 });
+
+describe("dashboard subtitle", () => {
+  it("leads with the time range and bucket note, no greeting (B6)", async () => {
+    renderPage();
+    const subtitle = await screen.findByText(/^今天 · 按 .+ 分桶。$/);
+    expect(subtitle.textContent).not.toContain("欢迎回来");
+    expect(screen.queryByText(/欢迎回来/)).not.toBeInTheDocument();
+    // 用户名不再出现在副标题里（右上角头像已有），时间范围直接开头。
+    expect(subtitle.textContent).toMatch(/^今天 · 按 .+ 分桶。$/);
+  });
+});

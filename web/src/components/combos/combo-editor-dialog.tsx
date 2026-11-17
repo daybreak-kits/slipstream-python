@@ -39,6 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   comboTargetKey,
   createCombo,
@@ -68,7 +69,6 @@ import {
   type MemberCandidate,
 } from "@/lib/combos-editor";
 import type { CatalogItem } from "@/lib/playground";
-import { useRovingTabs } from "@/lib/use-roving-tabs";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -158,11 +158,6 @@ export function ComboEditorDialog({
   const [selectedQuery, setSelectedQuery] = useState("");
   const [availableQuery, setAvailableQuery] = useState("");
   const [availableTab, setAvailableTab] = useState<ComboTargetType>("channel_model");
-  const { onKeyDown, tabProps } = useRovingTabs(
-    CANDIDATE_TABS.map((tab) => tab.key),
-    availableTab,
-    setAvailableTab,
-  );
   const [availableGrouped, setAvailableGrouped] = useState(true);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
@@ -943,49 +938,48 @@ export function ComboEditorDialog({
 
             <div className="flex min-w-0 flex-1 flex-col rounded-control border border-border">
               <div className="border-b border-border bg-surface-2">
-                <div
-                  role="tablist"
-                  aria-label="待选成员类型"
-                  className="flex items-center gap-1 border-b border-border px-2"
-                  onKeyDown={onKeyDown}
+                <Tabs
+                  value={availableTab}
+                  onValueChange={(value) => setAvailableTab(value as ComboTargetType)}
                 >
-                  {CANDIDATE_TABS.map((tab) => {
-                    const active = availableTab === tab.key;
-                    const Icon = tab.icon;
-                    return (
-                      <button
-                        key={tab.key}
-                        {...tabProps(tab.key)}
-                        id={`candidate-tab-${tab.key}`}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        aria-controls="candidate-tabpanel"
-                        className={cn(
-                          "relative inline-flex shrink-0 items-center gap-1.5 px-2.5 py-2 text-xs transition-colors",
-                          active ? "font-medium text-primary" : "text-muted-foreground hover:text-title",
-                        )}
-                      >
-                        <Icon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
-                        {tab.label}
-                        {active ? (
-                          <span className="absolute inset-x-1 -bottom-px h-0.5 rounded-full bg-primary" aria-hidden="true" />
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                  <span className="ml-auto pr-1 font-mono text-2xs tabular-nums text-muted-foreground">
-                    {visibleCandidates.length} /
-                    {candidates.filter((item) => item.targetType === availableTab).length}
-                  </span>
-                </div>
-                <div
-                  id="candidate-tabpanel"
-                  role="tabpanel"
-                  aria-labelledby={`candidate-tab-${availableTab}`}
-                  className="flex min-h-0 flex-1 flex-col"
-                >
-                <div className="space-y-2 px-3 py-2">
+                  <TabsList
+                    aria-label="待选成员类型"
+                    className="flex h-auto w-full items-center justify-start gap-1 rounded-none border-b border-border bg-transparent p-0 px-2"
+                  >
+                    {CANDIDATE_TABS.map((tab) => {
+                      const active = availableTab === tab.key;
+                      const Icon = tab.icon;
+                      return (
+                        <TabsTrigger
+                          key={tab.key}
+                          value={tab.key}
+                          className={cn(
+                            "relative inline-flex shrink-0 items-center gap-1.5 rounded-none px-2.5 py-2 text-xs transition-colors",
+                            "data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none",
+                            active ? "font-medium" : "font-normal text-muted-foreground hover:text-title",
+                          )}
+                        >
+                          <Icon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                          {tab.label}
+                          {active ? (
+                            <span
+                              className="absolute inset-x-1 -bottom-px h-0.5 rounded-full bg-primary"
+                              aria-hidden="true"
+                            />
+                          ) : null}
+                        </TabsTrigger>
+                      );
+                    })}
+                    <span className="ml-auto pr-1 font-mono text-2xs tabular-nums text-muted-foreground">
+                      {visibleCandidates.length} /
+                      {candidates.filter((item) => item.targetType === availableTab).length}
+                    </span>
+                  </TabsList>
+                  <TabsContent
+                    value={availableTab}
+                    className="mt-0 flex min-h-0 flex-1 flex-col"
+                  >
+                    <div className="space-y-2 px-3 py-2">
                   <div className="flex items-center gap-2">
                     <InputGroup className="h-8 min-w-0 flex-1">
                       <InputGroupAddon>
@@ -1025,8 +1019,9 @@ export function ComboEditorDialog({
                   <p className="text-2xs text-muted-foreground">
                     点击加入；已加入的条目置灰不可重复加入，priority 自动并入当前最低层（数值越大越先调用，同层等概率随机）。
                   </p>
-                </div>
-              </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
 
               <div className="max-h-80 min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5">
                 {visibleCandidates.length === 0 ? (

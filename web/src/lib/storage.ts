@@ -5,6 +5,15 @@
  * preferences, sidebar state) lives inside one JSON object under
  * `system.storage`, so renaming the product or adding a field only ever
  * touches this module.
+ *
+ * Known exceptions — legacy standalone keys, documented here rather than
+ * migrated (audit N8):
+ * - `slipstream.playground.history.v1` (PLAYGROUND_HISTORY_KEY in
+ *   `lib/playground.ts`): playground chat history, kept on its own key so
+ *   large transcripts never re-serialize the shared store.
+ *
+ * New keys must join the `StoredKey` union below (ui.md §2.4 客户端存储单源);
+ * do not introduce additional standalone keys.
  */
 export const STORAGE_KEY = "system.storage";
 

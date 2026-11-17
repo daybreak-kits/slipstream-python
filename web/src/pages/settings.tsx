@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
@@ -376,12 +377,10 @@ export function SettingsPage() {
 
   return (
     <div className="animate-fade-up">
-      <div>
-        <h1 className="text-h1 font-semibold tracking-[-0.02em] text-title">系统设置</h1>
-        <p className="mt-1.5 max-w-2xl text-2sm text-muted-foreground">
-          管理管理员账号、时间显示与主题，并控制路由策略、请求准入与请求日志是否保存正文。脱敏始终强制执行，无法关闭。
-        </p>
-      </div>
+      <PageHeader
+        title="系统设置"
+        description="管理管理员账号、时间显示与主题，并控制路由策略、请求准入与请求日志是否保存正文。脱敏始终强制执行，无法关闭。"
+      />
 
       {settingsQuery.isError ? (
         <Alert variant="destructive" className="mt-4">

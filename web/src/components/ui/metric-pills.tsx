@@ -39,7 +39,7 @@ export function MetricStrip({
         >
           <div className="flex items-center gap-2">
             <IconBadge icon={item.icon} tone={item.tone} size="sm" />
-            <span className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
               {item.label}
             </span>
             {item.estimated ? (
@@ -58,13 +58,13 @@ export function MetricStrip({
           </div>
           <p
             className={cn(
-              "mt-2 text-[19px] font-semibold leading-none tracking-[-0.01em] tabular-nums text-title",
+              "mt-2 text-metric font-semibold leading-none tracking-[-0.01em] tabular-nums text-title",
               loading && "animate-pulse text-muted-foreground",
             )}
           >
             {loading ? "…" : item.value}
           </p>
-          <p className="mt-1.5 truncate text-[10.5px] text-muted-foreground" title={item.hint}>
+          <p className="mt-1.5 truncate text-2xs text-muted-foreground" title={item.hint}>
             {loading ? "正在统计…" : item.hint ?? "—"}
           </p>
         </div>

@@ -49,15 +49,24 @@ export interface ChatParamsPanelProps {
   reasoningLevel?: string;
 }
 
-/** 面板内网格统一间距：一行尽量多放参数，靠列的多少而不是靠留白控制密度。 */
-const GRID = "grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6";
+/**
+ * 组内行网格：同质控件一行（lg 3 列 / xl 6 列，窄屏 1→2 列退化），行内等高等宽；
+ * items-end 让开关这类没有标签行的控件与同行输入框底部对齐，
+ * 个别 label 换行时输入框也不会上下错位。
+ */
+const GRID =
+  "grid grid-cols-1 items-end gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6";
+/** textarea 类控件（系统提示词 / stop / 额外请求字段 JSON）整行独占，不与短控件同排。 */
+const FULL = "col-span-full";
 /** 字段内部 label 与控件的间距（field 默认 gap-3 太松，会白占行高）。 */
 const FIELD = "min-w-0 gap-1";
-/** 参数名：虚线下划 + help 光标，提示「可悬停看取值与用途」。 */
+/** 主标签：中文业务名 + 参数名等宽副注；取值与用途一律走 Tooltip，不再用虚线下划线冒充 title。 */
 const LABEL =
-  "w-fit cursor-help text-xs font-medium leading-4 text-muted-foreground underline decoration-dotted decoration-muted-foreground underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "w-fit cursor-help flex-wrap items-baseline gap-x-1.5 text-xs font-medium leading-4 text-body focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+/** 参数名副注：请求字段的等宽标识，弱于中文主标。 */
+const SUBNAME = "font-mono text-2xs font-normal text-muted-foreground";
 
-/** 思考下拉的 value → 完整展示文案（控件被截断时靠 title 给出全文）。 */
+/** 思考下拉的 value → 完整展示文案（控件被截断时悬停 Tooltip 给出全文）。 */
 const THINKING_OPTIONS: Array<{ value: ThinkingMode; label: string }> = [
   { value: "off", label: "不指定（沿用渠道默认）" },
   { value: "none", label: "reasoning_effort=none（关闭）" },
@@ -76,21 +85,36 @@ const RESPONSE_FORMAT_LABELS: Record<ResponseFormatType, string> = {
 
 interface ParamLabelProps {
   id: string;
+  /** 中文业务名：视觉与读屏的主标签。 */
   label: string;
+  /** 请求参数名：等宽副注；没有对应参数的字段（会话级设置、JSON 兜底）省略。 */
+  name?: string;
   hint: string;
+  /** 只读值没有可绑定的输入控件，用 FieldTitle 呈现。 */
   title?: boolean;
 }
 
 /**
- * 参数名 + 悬停提示：提示内容就是原来的「取值 range · 用途 usage」。
+ * 参数标签 + 悬停提示：提示内容就是「取值 range · 用途 usage」。
  * aria-describedby 指向一个 sr-only 副本，读屏在未展开 tooltip 时也能取到说明；
  * 键盘 Tab 到标签时 Radix 会按 focus 打开提示，鼠标悬停同样触发。
  */
-function ParamLabel({ id, label, hint, title = false }: ParamLabelProps) {
+function ParamLabel({ id, label, name, hint, title = false }: ParamLabelProps) {
   const descriptionId = `${id}-hint`;
+  const text = (
+    <>
+      <span>{label}</span>
+      {name ? (
+        <>
+          {" "}
+          <span className={SUBNAME}>{name}</span>
+        </>
+      ) : null}
+    </>
+  );
   const trigger = title ? (
     <FieldTitle tabIndex={0} aria-describedby={descriptionId} className={LABEL}>
-      {label}
+      {text}
     </FieldTitle>
   ) : (
     <FieldLabel
@@ -99,14 +123,14 @@ function ParamLabel({ id, label, hint, title = false }: ParamLabelProps) {
       aria-describedby={descriptionId}
       className={LABEL}
     >
-      {label}
+      {text}
     </FieldLabel>
   );
 
   // 说明副本必须包在一层普通容器里：Field 的 [&>*] 规则会把直接子元素的宽度拉满，
   // 直接放在 Field 下的 sr-only 会被撑成整段文字宽、把文档撑出横向滚动。
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <Tooltip>
         <TooltipTrigger asChild>{trigger}</TooltipTrigger>
         <TooltipContent>{hint}</TooltipContent>
@@ -121,6 +145,8 @@ function ParamLabel({ id, label, hint, title = false }: ParamLabelProps) {
 interface NumberFieldProps {
   id: string;
   label: string;
+  /** 请求参数名（等宽副注）；数值字段都有对应参数。 */
+  name?: string;
   value: string | undefined;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -128,10 +154,11 @@ interface NumberFieldProps {
   hint: string;
 }
 
-/** 数值字段：参数名 + 等宽输入框，说明只在悬停参数名时出现。 */
+/** 数值字段：中文业务名 + 等宽参数名副注 + h-9 输入框；说明悬停标签时出现。 */
 function NumberField({
   id,
   label,
+  name,
   value,
   onChange,
   placeholder,
@@ -140,10 +167,9 @@ function NumberField({
 }: NumberFieldProps) {
   return (
     <Field className={FIELD}>
-      <ParamLabel id={id} label={label} hint={hint} />
+      <ParamLabel id={id} label={label} name={name} hint={hint} />
       <Input
         id={id}
-        aria-label={label}
         inputMode={inputMode}
         placeholder={placeholder}
         value={value ?? ""}
@@ -157,18 +183,33 @@ function NumberField({
 interface ToggleFieldProps {
   id: string;
   label: string;
+  name?: string;
   checked: boolean;
   onChange: (value: boolean) => void;
   hint: string;
+  /** 所在行的跨列安排（如系统组在 xl 让每份占 2 列凑满整行）。 */
+  className?: string;
 }
 
-/** 开关字段：控件与参数名同一行，行高与其他输入框对齐（h-9）。 */
-function ToggleField({ id, label, checked, onChange, hint }: ToggleFieldProps) {
+/** 开关字段：checkbox 与标签同一行（h-9），在 items-end 网格里与同行输入框底部对齐。 */
+function ToggleField({
+  id,
+  label,
+  name,
+  checked,
+  onChange,
+  hint,
+  className,
+}: ToggleFieldProps) {
   return (
-    <Field className={FIELD}>
+    <Field className={cn(FIELD, className)}>
       <div className="flex h-9 min-w-0 items-center gap-2">
-        <Checkbox id={id} checked={checked} onCheckedChange={(value) => onChange(value === true)} />
-        <ParamLabel id={id} label={label} hint={hint} />
+        <Checkbox
+          id={id}
+          checked={checked}
+          onCheckedChange={(value) => onChange(value === true)}
+        />
+        <ParamLabel id={id} label={label} name={name} hint={hint} />
       </div>
     </Field>
   );
@@ -179,16 +220,17 @@ interface ReadOnlyValueProps {
   label: string;
   value: string;
   hint: string;
+  className?: string;
 }
 
 /**
  * 只读值：渠道登记的思考等级可能很长，单行截断 + 悬停 Tooltip 看全文，
- * 不让它把所在列撑宽或把页面撑出横向滚动；参数名的说明走 ParamLabel。
+ * 不让它把所在列撑宽或把页面撑出横向滚动；标签说明同样走 ParamLabel。
  */
-function ReadOnlyValue({ id, label, value, hint }: ReadOnlyValueProps) {
+function ReadOnlyValue({ id, label, value, hint, className }: ReadOnlyValueProps) {
   const text = value.trim() || "未配置";
   return (
-    <Field className={FIELD}>
+    <Field className={cn(FIELD, className)}>
       <ParamLabel id={id} label={label} hint={hint} title />
       <Tooltip>
         <TooltipTrigger asChild>
@@ -242,7 +284,8 @@ function ParamGroup({ title, open, onOpenChange, children }: ParamGroupProps) {
 /**
  * 参数面板：系统提示词与 API 密钥是会话级设置；
  * 采样 / 输出 / 高级三组只对下一次请求生效（发送后由页面复位）。
- * 说明文案不再占一行：悬停参数名看「取值 · 用途」，面板因此能一屏放下全部参数。
+ * 布局按「同质控件一行」组织：textarea 类整行独占，短输入与 select 同行等高等宽，
+ * 开关与同高控件为伴、底部对齐；说明文案悬停标签看（Tooltip），面板一屏放下全部参数。
  */
 export function ChatParamsPanel({
   systemPrompt,
@@ -276,7 +319,8 @@ export function ChatParamsPanel({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="space-y-1.5">
+      {/* 组间 16px（space-y-4），组内网格 gap-y-3（12px），全部落在 4px 网格上。 */}
+      <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-title">参数控制</h2>
           <Badge tone="secondary">只对下一次请求生效</Badge>
@@ -288,7 +332,7 @@ export function ChatParamsPanel({
           onOpenChange={setGroupOpen("system")}
         >
           <div className={GRID}>
-            <Field className={cn(FIELD, "sm:col-span-2")}>
+            <Field className={cn(FIELD, FULL)}>
               <ParamLabel
                 id="playground-system-prompt"
                 label="系统提示词"
@@ -296,7 +340,6 @@ export function ChatParamsPanel({
               />
               <Textarea
                 id="playground-system-prompt"
-                aria-label="系统提示词"
                 className="min-h-14 resize-y text-2sm"
                 placeholder="可选：作为 system 消息放在上下文最前"
                 value={systemPrompt}
@@ -304,7 +347,8 @@ export function ChatParamsPanel({
               />
             </Field>
 
-            <Field className={FIELD}>
+            {/* 会话级行没有列入短输入清单：xl 每份占 2 列，行内三份凑满整行不留空洞。 */}
+            <Field className={cn(FIELD, "xl:col-span-2")}>
               <ParamLabel
                 id="playground-api-key"
                 label="API 密钥"
@@ -327,6 +371,7 @@ export function ChatParamsPanel({
               checked={streamMode}
               onChange={onStreamModeChange}
               hint={paramHintText("streamMode")}
+              className="xl:col-span-2"
             />
 
             <ReadOnlyValue
@@ -334,11 +379,10 @@ export function ChatParamsPanel({
               label="渠道思考等级（只读）"
               value={reasoningLevel}
               hint={paramHintText("reasoningLevel")}
+              className="sm:col-span-2 lg:col-span-1 xl:col-span-2"
             />
           </div>
         </ParamGroup>
-
-        <div className="border-t border-border" />
 
         <ParamGroup
           title="采样"
@@ -348,7 +392,8 @@ export function ChatParamsPanel({
           <div className={GRID}>
             <NumberField
               id="playground-temperature"
-              label="temperature"
+              label="温度"
+              name="temperature"
               placeholder="0.7"
               value={params.temperature}
               onChange={(value) => onParamsChange({ ...params, temperature: value })}
@@ -356,7 +401,8 @@ export function ChatParamsPanel({
             />
             <NumberField
               id="playground-top-p"
-              label="top_p"
+              label="核采样"
+              name="top_p"
               placeholder="默认"
               value={params.topP}
               onChange={(value) => onParamsChange({ ...params, topP: value })}
@@ -364,7 +410,8 @@ export function ChatParamsPanel({
             />
             <NumberField
               id="playground-top-k"
-              label="top_k"
+              label="候选词数"
+              name="top_k"
               placeholder="默认"
               inputMode="numeric"
               value={params.topK}
@@ -373,7 +420,8 @@ export function ChatParamsPanel({
             />
             <NumberField
               id="playground-seed"
-              label="seed"
+              label="随机种子"
+              name="seed"
               placeholder="默认"
               inputMode="numeric"
               value={params.seed}
@@ -382,7 +430,8 @@ export function ChatParamsPanel({
             />
             <NumberField
               id="playground-frequency-penalty"
-              label="frequency_penalty"
+              label="频率惩罚"
+              name="frequency_penalty"
               placeholder="默认"
               value={params.frequencyPenalty}
               onChange={(value) => onParamsChange({ ...params, frequencyPenalty: value })}
@@ -390,7 +439,8 @@ export function ChatParamsPanel({
             />
             <NumberField
               id="playground-presence-penalty"
-              label="presence_penalty"
+              label="存在惩罚"
+              name="presence_penalty"
               placeholder="默认"
               value={params.presencePenalty}
               onChange={(value) => onParamsChange({ ...params, presencePenalty: value })}
@@ -398,8 +448,6 @@ export function ChatParamsPanel({
             />
           </div>
         </ParamGroup>
-
-        <div className="border-t border-border" />
 
         <ParamGroup
           title="输出"
@@ -409,7 +457,8 @@ export function ChatParamsPanel({
           <div className={GRID}>
             <NumberField
               id="playground-max-tokens"
-              label="max_tokens"
+              label="最大输出"
+              name="max_tokens"
               placeholder="不限"
               inputMode="numeric"
               value={params.maxTokens}
@@ -421,7 +470,8 @@ export function ChatParamsPanel({
             />
             <NumberField
               id="playground-max-completion-tokens"
-              label="max_completion_tokens"
+              label="补全上限"
+              name="max_completion_tokens"
               placeholder="默认"
               inputMode="numeric"
               value={params.maxCompletionTokens}
@@ -430,7 +480,8 @@ export function ChatParamsPanel({
             />
             <NumberField
               id="playground-n"
-              label="n"
+              label="回复份数"
+              name="n"
               placeholder="默认 1"
               inputMode="numeric"
               value={params.n}
@@ -440,7 +491,8 @@ export function ChatParamsPanel({
             <Field className={FIELD}>
               <ParamLabel
                 id="playground-response-format"
-                label="response_format"
+                label="回复格式"
+                name="response_format"
                 hint={paramHintText("responseFormat")}
               />
               <Select
@@ -452,25 +504,34 @@ export function ChatParamsPanel({
                   })
                 }
               >
-                <SelectTrigger
-                  id="playground-response-format"
-                  aria-label="response_format"
-                  title={responseFormatLabel}
-                  className="h-9 w-full border-border-strong bg-surface"
-                >
-                  <SelectValue />
-                </SelectTrigger>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <SelectTrigger
+                      id="playground-response-format"
+                      aria-label="回复格式 response_format"
+                      className="h-9 w-full border-border-strong bg-surface"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </TooltipTrigger>
+                  {/* 选中项被列宽截断时悬停看全文；title= 不算 tooltip（ui.md §2.3）。 */}
+                  <TooltipContent>{responseFormatLabel}</TooltipContent>
+                </Tooltip>
                 <SelectContent>
                   <SelectItem value="text">text（默认）</SelectItem>
                   <SelectItem value="json_object">json_object</SelectItem>
                 </SelectContent>
               </Select>
             </Field>
-            <Field className={cn(FIELD, "sm:col-span-2")}>
-              <ParamLabel id="playground-stop" label="stop（多值）" hint={paramHintText("stop")} />
+            <Field className={cn(FIELD, FULL)}>
+              <ParamLabel
+                id="playground-stop"
+                label="停止序列"
+                name="stop"
+                hint={paramHintText("stop")}
+              />
               <Textarea
                 id="playground-stop"
-                aria-label="stop"
                 className="min-h-14 resize-y text-2sm"
                 placeholder="每行一条，最多 4 条"
                 value={params.stop ?? ""}
@@ -480,8 +541,6 @@ export function ChatParamsPanel({
           </div>
         </ParamGroup>
 
-        <div className="border-t border-border" />
-
         <ParamGroup
           title="高级参数"
           open={openGroups.advanced}
@@ -490,7 +549,8 @@ export function ChatParamsPanel({
           <div className={GRID}>
             <ToggleField
               id="playground-logprobs"
-              label="logprobs"
+              label="词概率"
+              name="logprobs"
               checked={params.logprobs ?? false}
               onChange={(checked) =>
                 onParamsChange({
@@ -503,7 +563,8 @@ export function ChatParamsPanel({
             />
             <NumberField
               id="playground-top-logprobs"
-              label="top_logprobs"
+              label="词概率条数"
+              name="top_logprobs"
               placeholder="默认"
               inputMode="numeric"
               value={params.logprobs ? params.topLogprobs : ""}
@@ -511,17 +572,21 @@ export function ChatParamsPanel({
               hint={paramHintText("topLogprobs")}
             />
             <Field className={FIELD}>
-              <ParamLabel id="playground-user" label="user" hint={paramHintText("user")} />
+              <ParamLabel
+                id="playground-user"
+                label="用户标识"
+                name="user"
+                hint={paramHintText("user")}
+              />
               <Input
                 id="playground-user"
-                aria-label="user"
                 placeholder="可选"
                 value={params.user ?? ""}
                 onChange={(event) => onParamsChange({ ...params, user: event.target.value })}
                 className="h-9 w-full"
               />
             </Field>
-            <Field className={cn(FIELD, "sm:col-span-2")}>
+            <Field className={FIELD}>
               <ParamLabel
                 id="playground-thinking-mode"
                 label="思考"
@@ -536,14 +601,18 @@ export function ChatParamsPanel({
                   })
                 }
               >
-                <SelectTrigger
-                  id="playground-thinking-mode"
-                  aria-label="思考"
-                  title={thinkingLabel}
-                  className="h-9 w-full border-border-strong bg-surface"
-                >
-                  <SelectValue />
-                </SelectTrigger>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <SelectTrigger
+                      id="playground-thinking-mode"
+                      aria-label="思考"
+                      className="h-9 w-full border-border-strong bg-surface"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>{thinkingLabel}</TooltipContent>
+                </Tooltip>
                 <SelectContent>
                   {THINKING_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
@@ -553,7 +622,7 @@ export function ChatParamsPanel({
                 </SelectContent>
               </Select>
             </Field>
-            <Field className={cn(FIELD, "sm:col-span-2")}>
+            <Field className={cn(FIELD, FULL)}>
               <ParamLabel
                 id="playground-extra-fields"
                 label="额外请求字段（JSON）"
@@ -561,7 +630,6 @@ export function ChatParamsPanel({
               />
               <Textarea
                 id="playground-extra-fields"
-                aria-label="额外请求字段（JSON）"
                 className="min-h-14 resize-y font-mono text-2xs"
                 placeholder='{"thinking": {"type": "enabled"}, "reasoning_split": true}'
                 value={params.extraFields ?? ""}

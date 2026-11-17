@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Empty } from "@/components/ui/empty";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { IconBadge } from "@/components/ui/icon-badge";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Select,
   SelectContent,
@@ -32,7 +33,6 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TimeRangePicker } from "@/components/ui/time-range-picker";
-import { useAuth } from "@/lib/auth";
 import { describeApiError } from "@/lib/channels";
 import { SELECT_ALL_VALUE } from "@/lib/select-sentinels";
 import {
@@ -91,7 +91,7 @@ function KpiMetric({ kpi }: { kpi: DashboardKpi }) {
         <IconBadge icon={Icon} tone={kpi.tone} size="sm" />
         <span className="truncate text-2xs font-medium text-muted-foreground">{kpi.label}</span>
       </div>
-      <p className="truncate text-metric font-semibold tracking-[-0.02em] tabular-nums text-title">
+      <p className="truncate text-metric font-semibold tracking-[-0.01em] tabular-nums text-title">
         {kpi.value}
       </p>
       {kpi.detail ? (
@@ -198,7 +198,7 @@ function LatencyPercentiles({ latency }: { latency: DashboardSummary["latency"] 
         ))}
       </div>
       {/* 分位名只出现一次（表头），避免每组都重复 P50/P90/P95/P99 标签。 */}
-      <div className="grid grid-cols-[44px_repeat(4,minmax(0,1fr))] items-center gap-2 border-b border-border pb-1 text-2xs font-medium uppercase tracking-wide text-faint">
+      <div className="grid grid-cols-[44px_repeat(4,minmax(0,1fr))] items-center gap-2 border-b border-border pb-1 text-2xs font-medium uppercase tracking-[0.08em] text-faint">
         <span aria-hidden="true" />
         {percentiles.map((percentile) => (
           <span key={percentile} className="text-right">
@@ -335,7 +335,6 @@ function Heatmap({ data }: { data: DashboardTimeseries }) {
 }
 
 export function DashboardPage() {
-  const { admin } = useAuth();
   const { mode } = useTimezone();
   const [range, setRange] = useState<TimeRange>("today");
   const [customStart, setCustomStart] = useState("");
@@ -452,45 +451,43 @@ export function DashboardPage() {
 
   return (
     <div className="animate-fade-up">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-h1 font-semibold tracking-[-0.02em] text-title">数据看板</h1>
-          <p className="mt-1.5 text-2sm text-muted-foreground">
-            欢迎回来，{admin?.username ?? "管理员"}。{timeRangeLabel(range, customStart, customEnd)} · 按{" "}
-            {timezone} 分桶。
-          </p>
-        </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <TimeRangePicker
-            range={range}
-            customStart={customStart}
-            customEnd={customEnd}
-            interval={intervalText}
-            onChange={(nextRange, nextStart, nextEnd) => {
-              setRange(nextRange);
-              setCustomStart(nextStart);
-              setCustomEnd(nextEnd);
-            }}
-            className="w-full sm:w-88"
-          />
-          <Select value={String(refreshMs)} onValueChange={(next) => setRefreshMs(Number(next))}>
-            <SelectTrigger
-              aria-label="自动刷新间隔"
-              className="h-9 w-full gap-2 rounded-control border border-border-strong bg-surface px-3 text-xs font-medium text-title shadow-none transition-colors hover:bg-surface-2 focus-visible:border-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg sm:w-52"
-            >
-              <span className="shrink-0 text-2xs font-normal text-faint">刷新间隔</span>
-              <SelectValue className="flex-1 text-left" />
-            </SelectTrigger>
-            <SelectContent>
-              {REFRESH_INTERVAL_OPTIONS.map((item) => (
-                <SelectItem key={item.value} value={String(item.value)}>
-                  {refreshIntervalLabel(item.value)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+      <PageHeader
+        className="items-end"
+        title="数据看板"
+        description={`${timeRangeLabel(range, customStart, customEnd)} · 按 ${timezone} 分桶。`}
+        actions={
+          <>
+            <TimeRangePicker
+              range={range}
+              customStart={customStart}
+              customEnd={customEnd}
+              interval={intervalText}
+              onChange={(nextRange, nextStart, nextEnd) => {
+                setRange(nextRange);
+                setCustomStart(nextStart);
+                setCustomEnd(nextEnd);
+              }}
+              className="w-full sm:w-88"
+            />
+            <Select value={String(refreshMs)} onValueChange={(next) => setRefreshMs(Number(next))}>
+              <SelectTrigger
+                aria-label="自动刷新间隔"
+                className="h-9 w-full gap-2 rounded-control border border-border-strong bg-surface px-3 text-xs font-medium text-title shadow-none transition-colors hover:bg-surface-2 focus-visible:border-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg sm:w-52"
+              >
+                <span className="shrink-0 text-2xs font-normal text-faint">刷新间隔</span>
+                <SelectValue className="flex-1 text-left" />
+              </SelectTrigger>
+              <SelectContent>
+                {REFRESH_INTERVAL_OPTIONS.map((item) => (
+                  <SelectItem key={item.value} value={String(item.value)}>
+                    {refreshIntervalLabel(item.value)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        }
+      />
 
       <div className="mt-3 flex flex-wrap items-end gap-2 rounded-control border border-border bg-surface px-3 py-2 text-xs">
         <Field className="w-auto min-w-0 gap-1">
