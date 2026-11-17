@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
@@ -24,7 +25,7 @@ from sqlalchemy import event
 
 from l01_core import runtime
 from l01_core.config import Settings
-from l05_service import usage_sink
+from l05_service import route_settings, route_stats, usage_sink
 from l07_bootstrap.app_factory import create_app
 from tests.fake_upstream_server import FakeUpstreamServer
 
@@ -228,3 +229,134 @@ async def test_memory_mode_request_runs_zero_sql(
     stats = usage_sink.usage_sink.stats()
     assert stats["pending"] == 1
     assert stats["written"] == 0
+
+
+def _expire_policy_caches(window: int) -> dict[str, Any]:
+    """把两份路由缓存的时间戳回拨到 TTL 之外，制造「过期但有值」。"""
+    assert route_stats._settings_cache[0] is not None
+    route_stats._settings_cache[1] = time.monotonic() - route_settings.CACHE_TTL_S - 1.0
+    entry = route_stats._stats_cache.get(window)
+    assert entry is not None, "lifespan 启动应已预热统计缓存"
+    stale_value, _stale_ts = entry
+    route_stats._stats_cache[window] = (
+        stale_value,
+        time.monotonic() - route_stats.STATS_CACHE_TTL_S - 1.0,
+    )
+    return stale_value
+
+
+async def test_memory_mode_stale_policy_keeps_request_sql_free(
+    memory_app, memory_client, upstream, monkeypatch
+) -> None:
+    """TTL 过期瞬间，请求路径回读陈旧值并把聚合刷新挪去后台，仍零 SQL。"""
+    client = memory_client
+    headers = await _token(client)
+    configured = await _configure(client, upstream, headers)
+    catalog = memory_app.state.catalog
+    await catalog.refresh()
+
+    async def _no_version() -> str:
+        return catalog.version or ""
+
+    async def _no_flush() -> None:
+        return None
+
+    monkeypatch.setattr(catalog, "_read_version", _no_version)
+    monkeypatch.setattr(catalog, "_flush_key_touches", _no_flush)
+    await asyncio.sleep(0.05)
+
+    # 后台刷新改成只记录调度的桩：本测试只钉「请求零 SQL + 调度发生」。
+    scheduled: list[int] = []
+
+    async def _fake_refresh(factory, window_minutes: int) -> None:
+        scheduled.append(window_minutes)
+
+    monkeypatch.setattr(route_stats, "_refresh_route_caches", _fake_refresh)
+    stale_value = _expire_policy_caches(30)
+
+    with _StatementCounter(memory_app.state.db_engine) as counter:
+        response = await client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {configured['key']['key']}"},
+            json=_chat_body(f"{configured['channel']['slug']}/gpt-test"),
+        )
+
+    assert response.status_code == 200, response.text
+    assert counter.statements == [], counter.statements
+    assert scheduled == [30], scheduled
+    # 陈旧值仍在服务（时间戳未被桩改写，值就是过期前那份）。
+    assert route_stats._stats_cache[30][0] is stale_value
+
+
+async def test_memory_mode_policy_refresh_is_single_flight(memory_app, monkeypatch) -> None:
+    """过期后第一个发现者创建刷新任务；在飞期间其余请求不重复调度。"""
+    catalog = memory_app.state.catalog
+    stale_value = _expire_policy_caches(30)
+
+    gate = asyncio.Event()
+    load_calls: list[int] = []
+
+    async def _gated_load_stats(session, window_minutes: int):
+        load_calls.append(window_minutes)
+        await gate.wait()
+        return stale_value
+
+    monkeypatch.setattr(route_stats, "_load_stats", _gated_load_stats)
+
+    factory = memory_app.state.session_factory
+    async with factory() as session:
+        session.info["catalog"] = catalog
+        await route_stats.resolve_policy(session)
+        # 等刷新任务真的启动并卡在闸门上。
+        for _ in range(200):
+            if load_calls:
+                break
+            await asyncio.sleep(0.005)
+        assert load_calls == [30], load_calls
+
+        await route_stats.resolve_policy(session)
+        assert load_calls == [30], load_calls  # 第二个发现者没有再发起加载
+        inflight = [t for t in route_stats._refresh_tasks.values() if not t.done()]
+        assert len(inflight) == 1, route_stats._refresh_tasks
+
+        gate.set()
+        task = route_stats._refresh_tasks.get(30)
+        assert task is not None
+        await asyncio.wait_for(task, timeout=5.0)
+        # 刷新完成：统计缓存时间戳被更新（拿到的是闸门放的旧值本身）。
+        assert route_stats._stats_cache[30][0] is stale_value
+        assert time.monotonic() - route_stats._stats_cache[30][1] < 1.0
+
+
+async def test_memory_mode_refresh_failure_keeps_stale_value(memory_app, monkeypatch) -> None:
+    """刷新失败静默保留陈旧值；下一次请求发现仍过期会再调度一轮。"""
+    catalog = memory_app.state.catalog
+    stale_value = _expire_policy_caches(30)
+    stale_ts = route_stats._stats_cache[30][1]
+
+    async def _boom(session, window_minutes: int):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(route_stats, "_load_stats", _boom)
+
+    factory = memory_app.state.session_factory
+    async with factory() as session:
+        session.info["catalog"] = catalog
+        policy = await route_stats.resolve_policy(session)
+        assert policy.stats is stale_value
+    task = route_stats._refresh_tasks.get(30)
+    assert task is not None
+    await asyncio.wait_for(task, timeout=5.0)  # 异常已被 worker 吞掉，不会外抛
+    assert route_stats._stats_cache[30][0] is stale_value
+    assert route_stats._stats_cache[30][1] == stale_ts  # 失败不改时间戳 → 仍视为过期
+
+    async with factory() as session:
+        session.info["catalog"] = catalog
+        await route_stats.resolve_policy(session)
+    task2 = route_stats._refresh_tasks.get(30)
+    assert task2 is not None and task2 is not task and not task2.done()
+    task2.cancel()
+    try:
+        await task2
+    except asyncio.CancelledError:
+        pass

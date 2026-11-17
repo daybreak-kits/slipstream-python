@@ -530,6 +530,9 @@ async def record_failure(
     rejections would trip the breaker and hide the real cause. The model is
     parked instead, because retrying the same key cannot help. A transient
     failure honours an upstream Retry-After by extending the cooldown.
+
+    只有状态实际迁移时才写库：open/fault 期间迟到的失败不会改变任何计数
+    （on_failure 的守卫），这类调用只同步缓存行，不产生写事务。
     """
     model = await session.get(
         orm.ChannelModelORM, candidate.model.id, populate_existing=True
@@ -541,47 +544,46 @@ async def record_failure(
     if permanent:
         park = park_until_ms if park_until_ms is not None else now + PERMANENT_COOLDOWN_MS
         until = max(int(state.cooldown_until or 0), park)
-        apply_to_model(
-            model,
-            replace(
-                state,
-                health="open",
-                opened_at=now,
-                cooldown_until=until,
-                half_open_since=None,
-            ),
+        next_state = replace(
+            state,
+            health="open",
+            opened_at=now,
+            cooldown_until=until,
+            half_open_since=None,
         )
-        await session.commit()
-        _sync_cached_model(session, candidate, model)
-        return
-    config = parse_breaker_config(model.cooldown_json)
-    apply_to_model(model, on_failure(state, config, now, rate_limited=rate_limited))
-    if retry_after_ms:
-        # Retry-After is authoritative: keep the candidate out for at least the
-        # window the upstream asked for, even when the breaker did not trip.
-        current = state_from_model(model)
-        bounded = min(int(retry_after_ms), config.fault_cooldown_s * 1000)
-        until = max(int(current.cooldown_until or 0), now + bounded)
-        if rate_limited:
-            # Rate limiting parks by time only: health stays normal, the
-            # cooldown alone gates admission until the moment passes.
-            apply_to_model(model, replace(current, cooldown_until=until))
-        else:
-            opened_at = current.opened_at if current.opened_at is not None else now
-            health = (
-                current.health
-                if current.health in {"open", "half_open", "fault"}
-                else "open"
-            )
-            apply_to_model(
-                model,
-                replace(
-                    current,
+    else:
+        config = parse_breaker_config(model.cooldown_json)
+        next_state = on_failure(state, config, now, rate_limited=rate_limited)
+        if retry_after_ms:
+            # Retry-After is authoritative: keep the candidate out for at least the
+            # window the upstream asked for, even when the breaker did not trip.
+            bounded = min(int(retry_after_ms), config.fault_cooldown_s * 1000)
+            until = max(int(next_state.cooldown_until or 0), now + bounded)
+            if rate_limited:
+                # Rate limiting parks by time only: health stays normal, the
+                # cooldown alone gates admission until the moment passes.
+                next_state = replace(next_state, cooldown_until=until)
+            else:
+                opened_at = (
+                    next_state.opened_at if next_state.opened_at is not None else now
+                )
+                health = (
+                    next_state.health
+                    if next_state.health in {"open", "half_open", "fault"}
+                    else "open"
+                )
+                next_state = replace(
+                    next_state,
                     health=health,
                     opened_at=opened_at,
                     cooldown_until=until,
-                ),
-            )
+                )
+    if next_state == state:
+        # 状态未迁移（open/fault 期间迟到的失败不移动时钟、Retry-After 也没有
+        # 拉长冷却）：不写库，避免无谓的写事务；只把刚读到的行同步回缓存行。
+        _sync_cached_model(session, candidate, model)
+        return
+    apply_to_model(model, next_state)
     await session.commit()
     _sync_cached_model(session, candidate, model)
 

@@ -99,6 +99,11 @@ class Catalog:
         return self._snapshot
 
     @property
+    def session_factory(self) -> async_sessionmaker[AsyncSession]:
+        """本目录绑定的会话工厂，供后台刷新任务开自己的短会话。"""
+        return self._session_factory
+
+    @property
     def version(self) -> str | None:
         snapshot = self._snapshot
         return snapshot.version if snapshot is not None else None

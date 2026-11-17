@@ -7,12 +7,35 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from sqlalchemy import text, update
+from sqlalchemy import event, text, update
 
 from l01_core.timeutil import now_ms
 from l04_repo import orm
-from l05_service.routing import Candidate, admit_candidate
+from l05_service.routing import Candidate, admit_candidate, record_failure
 from tests.fake_upstream_server import FakeUpstreamServer
+
+
+class _StatementCounter:
+    """Record the SQL statements one engine runs inside the block."""
+
+    def __init__(self, app: Any) -> None:
+        self._engine = app.state.db_engine.sync_engine
+        self.statements: list[str] = []
+
+    def _before_execute(self, conn, cursor, statement, parameters, context, executemany):
+        self.statements.append(" ".join(str(statement).split()))
+
+    def __enter__(self) -> "_StatementCounter":
+        event.listen(self._engine, "before_cursor_execute", self._before_execute)
+        return self
+
+    def __exit__(self, *exc_info: object) -> bool:
+        event.remove(self._engine, "before_cursor_execute", self._before_execute)
+        return False
+
+    @property
+    def updates(self) -> list[str]:
+        return [s for s in self.statements if s.startswith("UPDATE")]
 
 
 @pytest.fixture
@@ -630,4 +653,56 @@ async def test_stream_abort_feeds_the_failure_breaker(client, upstream, app):
 
     listed = await _api_model(client, headers, channel["id"], model["id"])
     assert listed["visible_status"] == "open"
+
+
+async def test_record_failure_skips_the_write_when_state_does_not_move(
+    client, upstream, app
+):
+    """open 状态下迟到的失败不迁移状态：不写库，只同步缓存行。
+
+    on_failure 对已 open 的行有「不让迟到失败移动时钟」的守卫；这类调用
+    的状态逐字段相同，不产生 UPDATE 也不提交事务（P1-R4）。
+    """
+    headers = await _token(client)
+    channel = await _channel(
+        client,
+        headers,
+        upstream.base_url + "/broken",
+        name="迟到失败渠道",
+        slug="brk-late",
+    )
+    model = await _model(client, headers, channel["id"], call_model="late-leaf")
+    now = now_ms()
+    # 前一次失败已把熔断打开：把行直接置成 open，冷却仍在未来。
+    await _patch_model(
+        app,
+        model["id"],
+        health_status="open",
+        consecutive_failures=1,
+        consecutive_trip_count=1,
+        escalation_trip_count=1,
+        opened_at=now,
+        cooldown_until=now + 600_000,
+        half_open_since=None,
+    )
+
+    factory = app.state.session_factory
+    async with factory() as session:
+        channel_row = await session.get(orm.ChannelORM, channel["id"])
+        model_row = await session.get(orm.ChannelModelORM, model["id"])
+        assert channel_row is not None and model_row is not None
+        candidate = Candidate(channel=channel_row, model=model_row)
+        with _StatementCounter(app) as counter:
+            await record_failure(session, candidate, at_ms=now + 1000)
+        # 读事务仍在（没有 commit），也没有任何 UPDATE 语句。
+        assert session.in_transaction(), "状态未迁移的失败不应提交事务"
+        assert counter.updates == [], counter.statements
+
+    # 库里的行原样保留：迟到的失败不移动时钟。
+    stored = await _stored(app, model["id"])
+    assert stored["health_status"] == "open"
+    assert stored["cooldown_until"] == now + 600_000
+    assert stored["consecutive_failures"] == 1
+    assert stored["consecutive_trip_count"] == 1
+    assert stored["half_open_since"] is None
 
