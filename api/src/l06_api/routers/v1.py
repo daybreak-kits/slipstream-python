@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Depends, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
+from l01_core.errors import AppError, ErrorCode
 from l01_core.jsonfast import dumps_compact
 from l05_service import catalog
 from l05_service import chat as chat_service
@@ -24,10 +28,95 @@ def _overlay_headers(base: dict[str, str], overlay: dict[str, str]) -> dict[str,
     return merged
 
 
+async def _inflight_slot() -> AsyncIterator[None]:
+    """在飞闸门依赖：先于鉴权与请求体解析占槽（429 快速失败）。
+
+    acquire 超限抛 429 发生在 yield 之前：FastAPI 不会注册退出回调，没占到
+    的槽位自然无需释放。占槽成功后，无论 handler 正常返回、流式消费完毕
+    还是客户端断连取消，依赖栈退出时都恰好归还一次（流式退出发生在响应体
+    发送完毕之后，长连接持槽语义与旧实现一致）。
+    """
+    gate = get_inflight_gate()
+    gate.acquire()
+    try:
+        yield
+    finally:
+        gate.release()
+
+
+def _body_too_large(limit: int) -> AppError:
+    return AppError(
+        ErrorCode.INVALID_REQUEST,
+        f"请求体超过大小上限 {limit} 字节",
+        status=413,
+        details={"max_body_bytes": limit},
+    )
+
+
+def _invalid_body_error(errors: list[dict[str, Any]], body: bytes) -> RequestValidationError:
+    """按 Body(...) 时代的 422 信封构造校验错误（errors.py 统一渲染）。
+
+    error dict 的形状与 FastAPI 解析 Body 时的构造一致，信封字节级不变。
+    """
+    return RequestValidationError(errors, body=body)
+
+
+async def _read_json_body(request: Request) -> dict[str, Any]:
+    """显式读请求体并解析 JSON；Content-Length 超限在读之前短路 413。
+
+    取代 Body(...) 的隐式全量解析：Starlette 在参数校验阶段就读完请求体，
+    超大请求不受 max_body_bytes 约束且解析完才被拒。Content-Length 是客户
+    端自报的（chunked 等场景缺失），缺失时读完按实际长度兜底。
+    """
+    limit = int(request.app.state.settings.max_body_bytes)
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            declared_length = int(declared)
+        except ValueError:
+            declared_length = None
+        if declared_length is not None and declared_length > limit:
+            raise _body_too_large(limit)
+    body = await request.body()
+    if len(body) > limit:
+        raise _body_too_large(limit)
+    try:
+        parsed = json.loads(body)
+    except ValueError as exc:
+        # JSONDecodeError: 与 FastAPI 的 json_invalid 错误同构（loc 精确到位置）。
+        raise _invalid_body_error(
+            [
+                {
+                    "type": "json_invalid",
+                    "loc": ("body", exc.pos),
+                    "msg": "JSON decode error",
+                    "input": {},
+                    "ctx": {"error": exc.msg},
+                }
+            ],
+            body,
+        ) from exc
+    if not isinstance(parsed, dict):
+        # Body(dict) 时代的 pydantic dict_type 校验错误，信封形状不变。
+        raise _invalid_body_error(
+            [
+                {
+                    "type": "dict_type",
+                    "loc": ("body",),
+                    "msg": "Input should be a valid dictionary",
+                    "input": parsed,
+                }
+            ],
+            body,
+        )
+    return parsed
+
+
 @router.post("/chat/completions")
 async def chat_completions(
     request: Request,
-    body: dict[str, Any] = Body(...),
+    # 依赖按声明顺序求解：在飞闸门先于鉴权（get_user_key）与请求体解析占槽。
+    _inflight: None = Depends(_inflight_slot),
     context: UserKeyContext = Depends(get_user_key),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -36,16 +125,14 @@ async def chat_completions(
     # 来源地址与原始请求头一起进入请求日志（转发头由 request_meta 解析）。
     client_ip = request.client.host if request.client else ""
     request_headers = dict(request.headers)
-    # 节点级在飞上限（429 快速失败）：流式与非流式共用一个进程内计数器。
-    gate = get_inflight_gate()
-    gate.acquire()
+    body = await _read_json_body(request)
     if body.get("stream"):
         registry = getattr(request.app.state, "stream_registry", None)
         # Everything until StreamingResponse owns the stream sits inside one
         # guard: any failure here -- including client-disconnect cancellation,
-        # which arrives as a BaseException -- must give back the in-flight
-        # slot (and the stream slot) exactly once. After the response is
-        # returned, _gated_events owns the in-flight release.
+        # which arrives as a BaseException -- must give back the stream slot
+        # exactly once. The in-flight slot itself stays with the dependency
+        # stack, which releases it after the response body has been sent.
         acquired_registry = False
         try:
             if registry is not None:
@@ -80,50 +167,43 @@ async def chat_completions(
                 gateway_headers,
             )
 
-            async def _gated_events() -> Any:
-                # 在飞槽位跟随 SSE 迭代器：读完 [DONE] 或客户端断连取消时归还。
-                try:
-                    async for chunk in run.events():
-                        yield chunk
-                finally:
-                    gate.release()
+            async def _events() -> Any:
+                # 纯 SSE 中继；在飞槽位由 _inflight_slot 依赖栈在流结束后归还。
+                async for chunk in run.events():
+                    yield chunk
 
             return StreamingResponse(
-                _gated_events(),
+                _events(),
                 media_type="text/event-stream",
                 headers=headers,
                 background=BackgroundTask(run.finalize),
             )
         except BaseException:
-            # 流式响应尚未接管槽位：并发流槽位与在飞槽位各还一次。
+            # 流式响应尚未接管：并发流槽位仍需归还（在飞槽位归依赖栈管）。
             if acquired_registry and registry is not None:
                 await registry.release()
-            gate.release()
             raise
-    try:
-        result = await chat_service.complete_direct(
-            session,
-            api_key=context.api_key,
-            user=context.user,
-            body=body,
-            request_id=request_id,
-            session_factory=request.app.state.session_factory,
-            client_ip=client_ip,
-            request_headers=request_headers,
-        )
-        # Upstream response headers are relayed as-is (framing already stripped by
-        # prepare_response); the gateway owns its request id.
-        headers = _overlay_headers(dict(result.headers), {"x-request-id": request_id})
-        # orjson renders the compact body (same bytes as JSONResponse for
-        # JSON-compatible payloads); Response keeps JSONResponse's header
-        # behaviour: content-type is only added when the upstream sent none.
-        return Response(
-            content=dumps_compact(result.payload),
-            headers=headers,
-            media_type="application/json",
-        )
-    finally:
-        gate.release()
+    result = await chat_service.complete_direct(
+        session,
+        api_key=context.api_key,
+        user=context.user,
+        body=body,
+        request_id=request_id,
+        session_factory=request.app.state.session_factory,
+        client_ip=client_ip,
+        request_headers=request_headers,
+    )
+    # Upstream response headers are relayed as-is (framing already stripped by
+    # prepare_response); the gateway owns its request id.
+    headers = _overlay_headers(dict(result.headers), {"x-request-id": request_id})
+    # orjson renders the compact body (same bytes as JSONResponse for
+    # JSON-compatible payloads); Response keeps JSONResponse's header
+    # behaviour: content-type is only added when the upstream sent none.
+    return Response(
+        content=dumps_compact(result.payload),
+        headers=headers,
+        media_type="application/json",
+    )
 
 
 @router.get("/models")

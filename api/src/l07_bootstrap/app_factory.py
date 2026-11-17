@@ -10,6 +10,8 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from l01_core import runtime
 from l01_core.config import Settings, get_settings
@@ -67,6 +69,38 @@ def _mount_web_dist(app: FastAPI, dist_dir: Path | None = None) -> None:
         ):
             return FileResponse(candidate)
         return FileResponse(index_file)
+
+
+class RequestIDMiddleware:
+    """Attach the per-request id to the state and the response headers.
+
+    Pure-ASGI rewrite of the former ``@app.middleware("http")`` handler: it
+    reuses the client's ``x-request-id`` when present, generates one otherwise,
+    and mirrors it back as ``X-Request-ID`` on the response. Visibility and
+    error paths are unchanged (downstream reads ``request.state.request_id``,
+    exceptions propagate untouched); the wrapper only intercepts
+    ``http.response.start``, avoiding the per-request anyio task and the
+    in-memory body copies BaseHTTPMiddleware pays for.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":  # lifespan / websocket pass through as-is.
+            await self.app(scope, receive, send)
+            return
+        request_id = Headers(scope=scope).get("x-request-id") or new_request_id()
+        # Written into the scope's state so downstream still reads
+        # request.state.request_id (the old middleware's storage spot).
+        scope.setdefault("state", {})["request_id"] = request_id
+
+        async def send_with_request_id(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["X-Request-ID"] = request_id
+            await send(message)
+
+        await self.app(scope, receive, send_with_request_id)
 
 
 def create_app(settings: Settings | None = None, database_url: str | None = None) -> FastAPI:
@@ -175,13 +209,9 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
     app.state.catalog = catalog_cache
     app.state.model_defaults = model_defaults_service
 
-    @app.middleware("http")
-    async def attach_request_id(request, call_next):  # type: ignore[no-untyped-def]
-        request.state.request_id = request.headers.get("x-request-id") or new_request_id()
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request.state.request_id
-        return response
-
+    # Registered before CORS so CORS stays the outermost middleware, exactly
+    # like the former @app.middleware("http") registration.
+    app.add_middleware(RequestIDMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.cors_origin_list,

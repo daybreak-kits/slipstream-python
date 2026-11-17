@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import threading
 
+# 模块顶导入：cap 取值每次 acquire 都要读这两个来源，函数内 import 的查找
+# 开销没有意义。注意 config 经模块属性访问（config.get_settings()）——测试
+# 是对 l01_core.config 打补丁的，绑定式 from-import 会把补丁隔在门外。
+from l01_core import config
 from l01_core.errors import AppError
+from l05_service import route_settings
 
 # l01_core.ErrorCode 没有节点级限流常量；为避免为单一调用点扩共享错误码表，
 # 这里用模块级常量（AppError.code 是普通字符串）。
@@ -33,17 +38,12 @@ class InflightGate:
             return self._inflight
 
     def _cap(self) -> int:
-        # 懒导入：cap 是唯一需要 route_settings / config 的地方，保持模块可最小导入。
         # ADR-077 决策 7：设置页存了行（is_default=False）即生效并压住 env；
         # 无 DB 行时回落部署环境变量 GATEWAY_INFLIGHT_CAP；都没有则默认 256。
-        from l05_service import route_settings
-
         cfg = route_settings.cached_route_settings()
         if not cfg.is_default:
             return max(0, int(cfg.inflight_cap))
-        from l01_core.config import get_settings
-
-        env_cap = getattr(get_settings(), "gateway_inflight_cap", None)
+        env_cap = getattr(config.get_settings(), "gateway_inflight_cap", None)
         if env_cap is None:
             return route_settings.DEFAULT_INFLIGHT_CAP
         try:
