@@ -496,7 +496,29 @@ client 直连 agw（:9103），Python 仅旁路：非流式计费数据现成（
 
 **ledger/service.py fsync 对称改造**（默认 off 管线）：与 usage 管线同款 `background_sync` 模式，32 项定向测试过。
 
-### 12.4 allocator env 权衡（本轮实测，不做默认推荐）
+### 12.4 内存治理：与 agentgateway 对比、回落行为与 allocator 权衡（2026-11-18）
+
+#### 12.4.1 背靠背对比（同机同时段、同一探针七阶段，VmRSS，MB）
+
+| 阶段 | slipstream（P1.5 后） | agentgateway v1.7.0 | 比值 | ag 回落？ | slipstream 回落？ |
+|---|---|---|---|---|---|
+| 空载（启动后静置） | 119.1 | 31.6 | 3.8× | — | — |
+| 非流式 128 QPS 峰值 | 400.3 | 43.3 | 9.2× | — | — |
+| ↳ 停 20s | 413.5（不回落） | 38.4 | 10.8× | ✅ | ❌ |
+| 流式 64 QPS（50K tok/2048 帧）峰值 | 541.2 | 44.2 | 12.2× | — | — |
+| ↳ 停 20s | 545.7（不回落） | 38.3 | 14.3× | ✅ | ❌ |
+| 满载（300K tok/20480 帧 ×16 并发）峰值 | 903.6 | 64.4 | 14× | — | — |
+| ↳ 停 30s | 870.7（几乎不回落） | 38.4 | 22.7× | ✅ **完全回落** | ❌ |
+| HWM（全程水位） | 903.2 | 64.3 | 14× | — | — |
+| 折算：满载每并发流 | ~49 MB/流 | ~2 MB/流 | 24× | — | — |
+
+空载 3.8× 是 Python 运行时地板（解释器 + fastapi/starlette/httpx/sqlalchemy/pydantic 导入；litellm 装而未载不占 RSS；同类 LiteLLM proxy 空载 ~500MB）；负载后差距放大到 14–23×，来源 = 在飞 body 多份拷贝（设计使然）+ glibc 对 MB 级 churn 的 arena 滞留（§12.3 memray 归因）。
+
+#### 12.4.2 回落行为：爬梯式 vs 呼吸式
+
+**slipstream 的 RSS 是爬梯式**：每个新高水位在负载归零后持续驻留（实测 20–30s settle 不回落，仅 903→871 的微小抖动；**连显式周期 `malloc_trim(0)`（每 5s）也无效**——settle 844MB vs 基线 871MB，证实本 glibc 的 trim 只归还堆顶连续空闲区，堆中部的空闲块（我们的主体）不归还）。机制：free 后的 1.2MB 级块进入 glibc 空闲链表而非还给 OS。**它不是泄漏**——内存被后续分配复用，RSS 不会随负载波次无限上涨，平台 ≈ 历史最高并发工作集 + 碎片开销；风险仅在于 cgroup/OOM 按全量 RSS 计费与监控观感（运维口径：以「首轮负载后的 RSS」为基线，对超出基线的增长告警，那才是真泄漏信号）。agentgateway 是呼吸式（free 即 munmap 还 OS），归零即回 38MB。
+
+#### 12.4.3 allocator env 权衡（全部实测，不做默认推荐）
 
 | 配置 | 重载后平台 RSS | HWM | 延迟代价 |
 |---|---|---|---|
@@ -506,7 +528,15 @@ client 直连 agw（:9103），Python 仅旁路：非流式计费数据现成（
 | +`MMAP_THRESHOLD=64KB` | 744MB | 961MB | 同上且封顶更差 |
 | `PYTHONMALLOC=mimalloc`（3.14 内置） | 778MB（且 settle 有回落行为） | 916MB | **膝点 ~310→~285**（304 QPS 从线速变 shedding：2307/3040、p50 530ms）；亚膝点延迟无差异 |
 
-结论：**生产默认不启用 allocator env**；内存受限部署可显式启用全三件并在延迟与 RSS 间拍板。glibc 动态 mmap 阈值机制与同类案例（CPython #109534、uvicorn #2078）见 `docs/scratch/research/python-gateway-memory-2026-11-18.md`。
+结论：**生产默认不启用 allocator env**；四条 allocator 路线全部实测，「内存 × 延迟」两轴不可兼得。glibc 动态 mmap 阈值机制与同类案例（CPython #109534、uvicorn #2078）见 `docs/scratch/research/python-gateway-memory-2026-11-18.md`。
+
+#### 12.4.4 把内存压下来的现实选项（按代价排）
+
+1. **多实例分摊（零代码）**：ADR-060 形态下每进程 in-flight 减半 → RSS 平台近似减半；水平扩容本来就要多进程，内存顺势解决。
+2. **调低在飞上限（零代码）**：cap 256→128，重载 RSS 平台近似对半（抬闸对照已证明 cap 不影响吞吐拐点，拐点由循环 CPU 决定，§12.3）。
+3. ~~周期 malloc_trim(0)~~：**已实测无效**——env 门控每 5s trim 的探针与基线无差异（settle 844 vs 871MB），240 QPS 延迟无伤但也无收益；trim 只归还堆顶连续空闲区，对堆中部空闲块无能为力。
+4. **P2 字节域全链路（结构改造）**：每在飞请求的大块分配 3→1 份，churn 减半 → 活对象与滞留一起缩，预估平台 851→~500-600MB；唯一能同时改善内存与延迟的路线。
+5. **不推荐**：allocator env（§12.4.3）；jemalloc（需 LD_PRELOAD + A/B，mimalloc 的结果已提示分配器级替换收益有限）。
 
 ### 12.5 功能核验（labs 端到端，28/28 PASS）
 
