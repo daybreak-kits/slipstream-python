@@ -520,7 +520,8 @@ async def test_stream_200_multi_frame_with_usage_and_done(monkeypatch):
         assert stream.terminal is True
         assert stream.content_chars == 5
         await stream.close()
-    text = "".join(chunks)
+    # iter_sse 的直通/改写块路径产 bytes（ASGI 原生形态），消费侧统一 decode 断言。
+    text = "".join(c.decode("utf-8") if isinstance(c, bytes) else c for c in chunks)
     assert '"content": "he"' in text
     assert '"content": "llo"' in text
     assert "data: [DONE]" in text
@@ -613,7 +614,8 @@ async def test_stream_data_frames_are_accepted_even_with_non_sse_content_type(mo
         assert stream.got_content is True
         chunks = [line async for line in stream.iter_sse()]
         await stream.close()
-    assert '"content": "hi"' in "".join(chunks)
+    text = "".join(c.decode("utf-8") if isinstance(c, bytes) else c for c in chunks)
+    assert '"content": "hi"' in text
 
 
 async def test_stream_only_done_sentinel_is_empty_pseudo_success(monkeypatch):

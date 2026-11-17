@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from l01_core import jsonfast
 from l01_core.config import get_settings
 from l01_core.logging import get_logger
 from l03_domain.urls import build_chat_url, build_models_url
@@ -1306,19 +1307,28 @@ class UpstreamStream:
         self.usage_from_upstream = False
         # Exactly one body iterator for the whole response: abandoning a
         # second iterator makes httpx treat the body as already streamed.
-        # 无改写需求且响应支持 aiter_bytes 时从原始字节流读取（直通模式），
-        # 否则走 aiter_lines 逐行路径；两者都只在 __init__ 创建一次。
-        if (
-            not self.sse_patch
-            and self.public_name == self.upstream_model
-            and hasattr(response, "aiter_bytes")
-        ):
-            self._byte_iter = self.response.aiter_bytes(1 << 20)
+        # 响应支持 aiter_bytes 时一律从原始字节流读取；是否改写、以何种
+        # 方式改写在迭代时决定（直通块模式 / 改写块模式，见 iter_sse），
+        # 二者都以网络块为转发粒度。只有测试替身（仅有 aiter_lines）才
+        # 退化为逐行路径。
+        if hasattr(response, "aiter_bytes"):
+            # 不带 chunk_size：httpx 的 ByteChunker 攒满 chunk_size 才吐块，
+            # 流中途出错时压在 chunker 里的未满块会连同 error 安全前缀一起
+            # 丢失。无参调用按网络块即时产出，块级批发由 _rewrite_blocks /
+            # _passthrough_blocks 自己负责。
+            self._byte_iter = self.response.aiter_bytes()
             self._line_iter = None
             self._raw_buf = b""
         else:
             self._byte_iter = None
             self._line_iter = self.response.aiter_lines()
+        # 字节级改写序列（"model":"<upstream>" → "model":"<public>"）。
+        # 带键名前缀，因此只会命中真正的 JSON 结构位（字符串内部出现的
+        # 引号必被转义，无法构成未转义的 "model":" 序列）；上游若用带空格
+        # 或转义形式回显 model，needle 不命中，自动回退到 rewrite_line 的
+        # json 解析路径，语义不丢。
+        self._rename_needle = b'"model":"' + self.upstream_model.encode("utf-8") + b'"'
+        self._rename_replacement = b'"model":"' + self.public_name.encode("utf-8") + b'"'
         # Raw SSE bytes observed, for STREAM_ABORTED evidence messages.
         self.bytes_seen = 0
 
@@ -1472,17 +1482,22 @@ class UpstreamStream:
         return line
 
     async def iter_sse(self):  # type: ignore[no-untyped-def]
-        # 逐帧改写只在两种情况下才需要：调用方注入了 sse_patch，或上游回显的
-        # model 名与对外名不同——此时保留逐行路径。否则走直通：真实 httpx
-        # 响应按网络块 aiter_bytes 原样转发（只跳过 JSON 往返与逐行字符串
-        # 拼接，跟踪解析本身每帧照跑：usage 兜底、finish_reason、断流判定、
-        # relay 文本累计都要求读每一帧，盲转会破坏伪成功/断流/记账语义）；
-        # 只提供 aiter_lines 的测试替身退化为逐行原样直通。
+        # 改写只在两种情况下才需要：调用方注入了 sse_patch，或上游回显的
+        # model 名与对外名不同（直连名调用恒真）。改写与否只决定块内行处
+        # 理方式，不决定转发粒度：真实 httpx 响应一律按网络块 aiter_bytes
+        # 转发（直通 = 字节原样；改写 = 块内逐行跟踪 + 改写后重组）。
+        # 跟踪解析本身每帧照跑：usage 兜底、finish_reason、断流判定、relay
+        # 文本累计都要求读每一帧，盲转会破坏伪成功/断流/记账语义。
+        # 只提供 aiter_lines 的测试替身退化为逐行路径。
         rewrite = bool(self.sse_patch) or self.public_name != self.upstream_model
         try:
             if self._byte_iter is not None:
-                async for block in self._passthrough_blocks():
-                    yield block
+                if rewrite:
+                    async for block in self._rewrite_blocks():
+                        yield block
+                else:
+                    async for block in self._passthrough_blocks():
+                        yield block
             else:
                 for line in self.prefetched:
                     yield self.rewrite_line(line) + "\n" if rewrite else line + "\n"
@@ -1530,21 +1545,31 @@ class UpstreamStream:
                 retryable=False,
             )
 
-    def _track_line(self, line: str) -> dict[str, Any] | None:
+    def _track_line(self, line: str | bytes) -> dict[str, Any] | None:
         """单行 SSE 跟踪：[DONE] / error / usage / finish_reason / 内容统计。
 
         error 帧抛 LLMError（逐行路径直接向外传播；直通路径先捕获、转发安全
         前缀后再抛，保证 error 帧本身不发往客户端）。返回该行已解析的 payload
         供逐行改写复用，避免同一帧被 json.loads 两次。
+        接受 str（aiter_lines 逐行路径）或 bytes（字节块路径直进解析器，
+        省掉每帧 decode）。
         """
-        if not line.startswith("data:"):
-            return None
-        data = line[5:].strip()
-        if data == "[DONE]":
-            self.saw_done = True
-            return None
+        if isinstance(line, bytes):
+            if not line.startswith(b"data:"):
+                return None
+            data = line[5:].strip()
+            if data == b"[DONE]":
+                self.saw_done = True
+                return None
+        else:
+            if not line.startswith("data:"):
+                return None
+            data = line[5:].strip()
+            if data == "[DONE]":
+                self.saw_done = True
+                return None
         try:
-            payload = json.loads(data)
+            payload = jsonfast.loads(data)
         except Exception:
             return None
         if not isinstance(payload, dict):
@@ -1580,6 +1605,7 @@ class UpstreamStream:
         """直通模式：跟踪块内的完整行（按 \n 切分）。
 
         返回 (首个 error 帧的字节偏移, 错误)；无 error 帧时 (-1, None)。
+        行以 bytes 直进 _track_line（解析器原生吃 bytes，省每帧 decode）。
         """
         start = 0
         while True:
@@ -1587,7 +1613,7 @@ class UpstreamStream:
             if index < 0:
                 return -1, None
             try:
-                self._track_line(block[start:index].decode("utf-8", "replace"))
+                self._track_line(block[start:index])
             except LLMError as error:
                 return start, error
             start = index + 1
@@ -1630,6 +1656,83 @@ class UpstreamStream:
                 yield block[:error_offset]
                 raise error
             yield block
+
+    async def _rewrite_blocks(self):  # type: ignore[no-untyped-def]
+        """改写块模式：按网络块转发，块内逐行跟踪 + 改写。
+
+        与旧逐行改写路径对外语义一致（每行仍跟踪并改写、error 帧不发客户端、
+        行尾规范成 \n），差异只在转发粒度：每个网络块一条 ASGI 消息，而不是
+        每行一条——逐帧 yield 的事件循环churn是直连名长流塌陷的主因。
+        纯改名场景（sse_patch 为空）优先走字节级 needle 替换，命中即免去
+        json.dumps；needle 不命中（带空格/转义的非常规回显）回退 rewrite_line。
+        """
+        for line in self.prefetched:
+            # prefetched 行已在 prime() 内跟踪过，这里只改写不重复跟踪
+            #（重复跟踪会把 delta 计数与 relay 文本翻倍，污染 usage 估算）。
+            yield (self.rewrite_line(line) + "\n").encode("utf-8")
+        self.prefetched.clear()
+        buf = self._raw_buf
+        self._raw_buf = b""
+        while True:
+            if b"\n" not in buf:
+                try:
+                    chunk = await asyncio.wait_for(
+                        self._byte_iter.__anext__(), timeout=self.read_timeout_s
+                    )
+                except StopAsyncIteration:
+                    if not buf:
+                        return
+                    out, error = self._rewrite_raw_block(buf + b"\n")
+                    if error is not None:
+                        yield out
+                        raise error
+                    yield out
+                    return
+                buf += chunk
+                self.bytes_seen += len(chunk)
+                continue
+            cut = buf.rfind(b"\n") + 1
+            block = buf[:cut]
+            buf = buf[cut:]
+            out, error = self._rewrite_raw_block(block)
+            if error is not None:
+                yield out
+                raise error
+            yield out
+
+    def _rewrite_raw_block(self, block: bytes) -> tuple[bytes, LLMError | None]:
+        """改写块内完整行（按 \n 切分），返回 (改写后字节, 首个 error)。
+
+        error 帧与其后内容不出现在改写结果里（与逐行路径的抛出语义一致：
+        客户端只收到 error 帧之前的安全前缀）。纯改名行在字节域完成替换，
+        decode 只为跟踪服务；非 data 行原样透传（行尾 \r 规范成 \n，与
+        aiter_lines 行为一致）。
+        """
+        pure_rename = not self.sse_patch and self.public_name != self.upstream_model
+        out: list[bytes] = []
+        start = 0
+        while True:
+            index = block.find(b"\n", start)
+            if index < 0:
+                break
+            raw = block[start:index]
+            start = index + 1
+            if raw.endswith(b"\r"):
+                raw = raw[:-1]
+            renamed = False
+            if pure_rename and raw.find(self._rename_needle) >= 0:
+                raw = raw.replace(self._rename_needle, self._rename_replacement)
+                renamed = True
+            line = raw.decode("utf-8", "replace")
+            try:
+                payload = self._track_line(line) if line.startswith("data:") else None
+                if renamed:
+                    out.append(raw + b"\n")
+                else:
+                    out.append((self.rewrite_line(line, payload) + "\n").encode("utf-8"))
+            except LLMError as error:
+                return b"".join(out), error
+        return b"".join(out), None
 
     def _track_delta(self, payload: dict[str, Any]) -> None:
         choices = payload.get("choices") or []
