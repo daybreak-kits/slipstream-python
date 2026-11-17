@@ -9,7 +9,7 @@
 |---|---|---|
 | 框架 | React 19.3.1 / Vite 7.3.8 / TS 5.9 | SPA 形态不动；换 antd 则 React 19 只能走 v6 |
 | 样式 | Tailwind 4.3.5（`@tailwindcss/vite`） | ADR-064 把 80 行 JS 配置迁进 CSS-first `@theme`；v4 原生 `@layer` 亦是 antd 解法前提 |
-| 控件层 | shadcn new-york **v3** copy-in：27 vendored + 11 并入 + 4 自建 = **42** | 不引运行时组件库、源码可改；Radix 自带键盘与 aria |
+| 控件层 | shadcn new-york **v3** copy-in：22 vendored + 12 并入 + 4 自建 = **38** | 不引运行时组件库、源码可改；Radix 自带键盘与 aria。2026-11-18：avatar/breadcrumb/form/progress/scroll-area 五件死基元移除（ADR-081）、新增 page-header 并入件 |
 | 原语 | `@radix-ui/react-*` 单包 | 禁聚合包 `radix-ui`；重拉出现 `from "cn"`/`from "radix-ui"` 即拒收 |
 | 表单 | react-hook-form 7.9 + zod 3.25 | shadcn form/field 接 Controller；antd Form 自带状态只能二选一 |
 | 通知 | sonner 2.0，单个 `<Toaster/>`（`App.tsx:94`） | 取代自建 toast，禁第二套 |
@@ -22,14 +22,14 @@
 
 ### 2.1 单一来源
 
-- 唯一控件来源 `web/src/components/ui/`；页面与 `components/<domain>/` 禁原生 `<select>`/`<table>`、`aria-haspopup`、`role="menu"`、手写弹层骨架。新增控件先查 42 件清单：shadcn 有就 copy-in + 换 token 类。
+- 唯一控件来源 `web/src/components/ui/`；页面与 `components/<domain>/` 禁原生 `<select>`/`<table>`、`aria-haspopup`、`role="menu"`、手写弹层骨架。新增控件先查 38 件清单：shadcn 有就 copy-in + 换 token 类。
 - **A 类 vendored 只改 token 类与尺寸类**，不动 DOM 结构、导出名、交互行为。唯一受控例外：受控打开（无 Trigger）时由基元归还焦点，实现在 `src/lib/dialog-opener-focus.tsx`，只挂 dialog/sheet/alert-dialog 的 Content。
 - B 类保留原公开入口（导出名、`size`/`variant`、slot）；vendored 里的 `dark:` 属上游写法，不改源码，lint 在 `src/components/ui/**` 内只计 warning。
 - **组件来源治理（2026-11-18 增）**：
   - Radix 原语只允许在 `components/ui/` 内 import（现全仓合规，新增时保持）；
-  - 禁止在 `ui/` 之外手写基元语义——`role="switch"/"tablist"/"tab"/"dialog"/"alertdialog"/"listbox"` 一旦出现在页面或 domain 组件里，即为第二套实现（现行违例：`channels/enabled-toggle.tsx` 手写 switch、`combos/combo-editor-dialog.tsx:947` 手写 tablist、`logs.tsx` RoutePopover 手写 dialog 浮层——改写规则行的删除按钮反而规范）；
-  - C 类自建件（combobox/time-range-picker/icon-badge/metric-pills）必须登记在本表；新自建件先证明 registry 与现有 42 件都覆盖不了，再入库；
-  - **0 采用基元是债不是资产**：`avatar/breadcrumb/form/progress/scroll-area/switch` 六件当前 0 调用（sonner 经 `App.tsx` 挂载、skeleton 仅测试引用）——每个死基元二选一：三个月内接线，或从清单移除；禁止"先 copy 备着"。
+  - 禁止在 `ui/` 之外手写基元语义——`role="switch"/"tablist"/"tab"/"dialog"/"alertdialog"/"listbox"` 一旦出现在页面或 domain 组件里，即为第二套实现（现行违例：`combos/combo-editor-dialog.tsx:947` 手写 tablist、`logs.tsx` RoutePopover 手写 dialog 浮层——改写规则行的删除按钮反而规范；手写 switch 已于 2026-11-18 清零，`channels/enabled-toggle.tsx` 改为组合 `ui/switch`）；
+  - C 类自建件（combobox/time-range-picker/icon-badge/metric-pills）必须登记在本表；新自建件先证明 registry 与现有 38 件都覆盖不了，再入库；
+  - **0 采用基元是债不是资产**：每个死基元二选一——三个月内接线，或从清单移除；禁止"先 copy 备着"。2026-11-18 处置（ADR-081 决策 2/4）：`switch` 接线（`channels/enabled-toggle.tsx` 改为组合 `ui/switch`，全站启停唯一实现）；`avatar/breadcrumb/form/progress/scroll-area` 五件移除，登记进 §3 已删除类（需要时一次 shadcn copy-in 即回）。
 
 ### 2.2 Token
 
@@ -68,21 +68,21 @@
 
 ### 2.5 门禁
 
-- `npm run lint:ui` = `node scripts/lint-ui.mjs --max-warnings 19`；基线 **0 error / 19 warning**（全是 vendored 例外：字号 10 + 盒尺寸 4 + `dark:` 5，走 relaxed 桶），应用层新增一条即失败；`filesScanned` 取 `--json` 当次输出。
+- `npm run lint:ui` = `node scripts/lint-ui.mjs --max-warnings 19`；基线 **0 error / 16 warning**（全是 vendored 例外：字号 7 + 盒尺寸 4 + `dark:` 5，走 relaxed 桶；上限 19 不变，余量 3），应用层新增 warning 直接计入并吃掉余量；`filesScanned` 取 `--json` 当次输出。
 - 十条清单第 1–5 条可 grep（select/table/`aria-haspopup`/任意值/hex 与 `dark:`）；第 3 条无 lint 规则，靠 `rg` 或 PowerShell + 人工。
-- **组件治理探针（2026-11-18 增，当前全部应归零/豁免）**：`rg 'role="(switch|tablist|tab|alertdialog)"' src --include '*.tsx' -g '!src/components/ui/**'` 期望仅剩已登记违例（修复批次清零）；`rg 'from "@radix-ui' src -g '!src/components/ui/**'` 期望 0 命中；`rg 'transition-all' src -g '!src/components/ui/**'` 期望 0 命中。
+- **组件治理探针（2026-11-18 增；已进 `lint:ui`，warning 级不拦截——ADR-081 决策 5）**：三条规则 `no-handrolled-primitive`（ui/ 外手写 `role="switch|tablist|tab|alertdialog|listbox|combobox"`；`role="dialog"` 不计——ui/popover 等基元在 ui/ 外的合法组合不涉及它，历史正当 dialog 用法不在本批范围）、`no-radix-outside-ui`（ui/ 外 `from "@radix-ui/` import）、`no-transition-all`（应用层 `transition-all` 类名）。三条扫描时已排除 `components/ui/**` 与测试（`__tests__`、`*.test.*`），违例不享受 relaxed 豁免、直接计入全局 warning。修复批清零后全站期望 **0 命中**。快捷核查仍可用 rg（均期望 0 命中）：`rg 'role="(switch|tablist|tab|alertdialog|listbox|combobox)"' src -g '*.tsx' -g '!src/components/ui/**'`；`rg 'from "@radix-ui' src -g '!src/components/ui/**'`；`rg 'transition-all' src -g '!src/components/ui/**'`。
 - **视觉验收是人工**（Playwright 截图套件已于 2026-11-18 移除，基线从未入库且含渠道标识不宜公开）：`./start-prd.sh` 起网关后打开 UI 逐页看；`/dev/ui` 基元画廊在**内部开发仓**，不随生产仓同步（本文旧句"仅开发环境注册"即此意，生产仓无此路由）。修改基元后按 §2.5 逐页人工过浅/深两主题。
 
 ## 3. 组件采纳状态
 
 | 类 | 件数 | 成员 | 语义 / 状态 |
 |---|---:|---|---|
-| A vendored（v3 冻结） | 27 | alert-dialog、avatar、breadcrumb、calendar、checkbox、collapsible、command、dialog、dropdown-menu、field、form、input-group、popover、progress、radio-group、scroll-area、select、separator、sheet、sonner、switch、table、tabs、textarea、toggle、toggle-group、tooltip | 只改 token/尺寸类；avatar、progress、tooltip 页面侧仍 0 调用（组件就位、调用点未迁） |
+| A vendored（v3 冻结） | 22 | alert-dialog、calendar、checkbox、collapsible、command、dialog、dropdown-menu、field、input-group、popover、radio-group、select、separator、sheet、sonner、switch、table、tabs、textarea、toggle、toggle-group、tooltip | 只改 token/尺寸类；tooltip 页面侧仍 0 调用（组件就位、调用点未迁）；switch 已接线（2026-11-18，启停唯一实现） |
 | B 并入 shadcn | 11 | button（default/secondary/outline/ghost/**danger**/link × size default/md/sm/lg/icon）、input、badge（6 tone）、card、alert（default/**destructive**/warning/success）、label、pagination（`PAGE_SIZE_OPTIONS`）、skeleton、spinner、empty、confirm-dialog | 保留原 public API；skeleton/spinner/empty 迁移前仍是「待接线」 |
 | C 自建保留 | 4 | combobox（Popover + Command）、time-range-picker（Calendar + 小时 wrapper）、icon-badge、metric-pills | 无 registry 对应件，永久保留；combobox 空值改用 `SELECT_ALL_VALUE` |
-| 已删除 | 4 | `ui/modal.tsx`(77)、`ui/search-select.tsx`(243)、`ui/toast.tsx`(179)、`lib/use-body-scroll-lock.ts` | toast 统一 sonner |
+| 已删除 | 9 | `ui/modal.tsx`(77)、`ui/search-select.tsx`(243)、`ui/toast.tsx`(179)、`lib/use-body-scroll-lock.ts`、`ui/avatar.tsx`(50)、`ui/breadcrumb.tsx`(115)、`ui/form.tsx`(178)、`ui/progress.tsx`(28)、`ui/scroll-area.tsx`(48) | toast 统一 sonner；五基元 0 调用移除（ADR-081 决策 4，2026-11-18），将来需要时一次 copy-in 即回 |
 
-偏差：button 用 `danger`、alert 用 `destructive`（不统一）；`ui/tabs` 已就位但页面 3 处仍是自写分段控件；`ui/empty.tsx` 只导出 `Empty`。**0 采用（2026-11-18 实测）**：avatar、breadcrumb、form、progress、scroll-area、switch 六件应用侧 0 调用（sonner 经 `App.tsx` 挂载、skeleton 仅测试引用）；手写违例与处置规则见 §2.1 组件来源治理。
+偏差：button 用 `danger`、alert 用 `destructive`（不统一）；`ui/tabs` 已就位但页面 3 处仍是自写分段控件；`ui/empty.tsx` 只导出 `Empty`。**0 采用（2026-11-18 实测）**：原六件死基元已处置——switch 接线为启停唯一实现（`channels/enabled-toggle.tsx`），avatar、breadcrumb、form、progress、scroll-area 五件移入上表已删除类（sonner 经 `App.tsx` 挂载、skeleton 仅测试引用）；手写违例与处置规则见 §2.1 组件来源治理。
 
 registry 四条：①无 combobox → 本地 Popover+Command；②Radix Select 在触屏弹自绘列表、不弹系统轮盘，要系统 picker 只能自写本地 `ui/native-select.tsx`（ADR-063 登记风险）；③calendar 无时间 API，禁打 time 补丁；④vendored 冻结 v3，重拉校验 `rg 'from "(cn|radix-ui)"' src/components/ui` 期望 0 命中。
 
