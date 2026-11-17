@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 依据：ADR-081 决策 2；audit.md 组件治理盘点（4 违例锚点）。
 
-- [ ] 组合编辑器候选 tab 换 `ui/tabs`，aria-selected 由基元接管
-- [ ] 日志路由链浮层换 `ui/popover`，Escape/外点关闭行为保持
-- [ ] 试验页与模型页 combobox 收敛到 `ui/combobox`，检索/空态/禁用行为等价
-- [ ] 全站 ui/ 之外无 `role="switch|tablist|tab|dialog|alertdialog|listbox"`（violation 清零，04 票的提示类 AlertDialog 除外）
-- [ ] vitest：组合编辑器 tab 切换、日志路由链、两处 combobox 检索回归通过
-- [ ] build + vitest + lint 绿；组合编辑器/日志/试验/模型页复拍
+- [x] 组合编辑器候选 tab 换 `ui/tabs`，aria-selected 由基元接管
+- [x] 日志路由链浮层换 `ui/popover`，Escape/外点关闭行为保持
+- [x] 试验页与模型页 combobox 收敛到 `ui/combobox`，检索/空态/禁用行为等价
+- [x] 全站 ui/ 之外无 `role="switch|tablist|tab|dialog|alertdialog|listbox"`（violation 清零，04 票的提示类 AlertDialog 除外）
+- [x] vitest：组合编辑器 tab 切换、日志路由链、两处 combobox 检索回归通过
+- [x] build + vitest + lint 绿；组合编辑器/日志/试验/模型页复拍

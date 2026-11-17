@@ -4,15 +4,15 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 依据：audit.md B5/B6/B8/N5/C12/N6/N8。
 
-- [ ] 加载屏：正式 logo + spinner，`animate-ping` 与裸字母清除
-- [ ] 看板副标题 = 时间范围 + 分桶说明，无问候语
-- [ ] overview 箭头 hover 行为不变、过渡具名
-- [ ] 两处 sparkle 删除或换语义图标；Wand2 保留并带豁免注释
-- [ ] 快捷键提示按平台渲染（navigator.platform 判定）
-- [ ] 「7 天/30 天」文案与 ssot §9.3 一致（二选一后回改文档）
-- [ ] storage.ts 注释与 playground 历史键关系说明更正
-- [ ] build + vitest + lint 绿；登录加载/看板/概览/试验复拍
+- [x] 加载屏：正式 logo + spinner，`animate-ping` 与裸字母清除
+- [x] 看板副标题 = 时间范围 + 分桶说明，无问候语
+- [x] overview 箭头 hover 行为不变、过渡具名
+- [x] 两处 sparkle 删除或换语义图标；Wand2 保留并带豁免注释
+- [x] 快捷键提示按平台渲染（navigator.platform 判定）
+- [x] 「7 天/30 天」文案与 ssot §9.3 一致（二选一后回改文档）
+- [x] storage.ts 注释与 playground 历史键关系说明更正
+- [x] build + vitest + lint 绿；登录加载/看板/概览/试验复拍

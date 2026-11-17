@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 依据：audit.md N3/N4；16 槽色板约束见 `docs/ui.md` §4 与 ADR-040。
 
-- [ ] 深色主题下桑基丝带与节点可辨认（浅色主题不变）
-- [ ] 16 槽色板与"隐藏系列不重排"约束不被破坏
-- [ ] 缓存命中率 hint 在 1440 宽五列布局下不出现破碎截断（完整口径悬停可见）
-- [ ] build + vitest + lint 绿；看板浅/深两主题 + 桑基 tab 复拍
+- [x] 深色主题下桑基丝带与节点可辨认（浅色主题不变）
+- [x] 16 槽色板与"隐藏系列不重排"约束不被破坏
+- [x] 缓存命中率 hint 在 1440 宽五列布局下不出现破碎截断（完整口径悬停可见）
+- [x] build + vitest + lint 绿；看板浅/深两主题 + 桑基 tab 复拍

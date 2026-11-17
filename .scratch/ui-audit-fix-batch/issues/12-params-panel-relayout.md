@@ -4,14 +4,14 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 依据：audit.md P7（`shots/43` 实证 + 病根：全面板统一 6 列网格 `chat-params-panel` 网格常量）。
 
-- [ ] 网格按行重组：无跨性质控件同格；textarea 全部整行
-- [ ] 六个采样输入同行等高；checkbox 行对齐
-- [ ] JSON 框整行，不再留右侧空洞
-- [ ] 标签体系统一（中文主标 + mono 参数副注 + tooltip 提示）
-- [ ] 窄屏（sm 以下）单列退化，无横向滚动
-- [ ] vitest：面板渲染契约（分组标题/字段存在性）回归通过
-- [ ] build + vitest + lint 绿；面板展开态浅/深复拍（基线 shots/43）
+- [x] 网格按行重组：无跨性质控件同格；textarea 全部整行
+- [x] 六个采样输入同行等高；checkbox 行对齐
+- [x] JSON 框整行，不再留右侧空洞
+- [x] 标签体系统一（中文主标 + mono 参数副注 + tooltip 提示）
+- [x] 窄屏（sm 以下）单列退化，无横向滚动
+- [x] vitest：面板渲染契约（分组标题/字段存在性）回归通过
+- [x] build + vitest + lint 绿；面板展开态浅/深复拍（基线 shots/43）

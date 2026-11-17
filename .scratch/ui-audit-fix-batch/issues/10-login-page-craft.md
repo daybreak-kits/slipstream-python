@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 依据：audit.md B7/C11/N2（`shots/01`、`21` 实证 blur 光斑）。
 
-- [ ] 两个 blur 光斑元素删除，页面视觉层次 = 网格 + 追踪卡
-- [ ] 右栏 h1 字号归字阶（22/28），`text-4xl` 清除
-- [ ] SLIPSTREAM 两个取值（0.18em/0.16em）统一为规范值
-- [ ] 密码占位符精简（快捷键/操作说明不入 placeholder）
-- [ ] 登录卡无入场延迟（或 ≤150ms 且不遮蔽可交互性）
-- [ ] build + vitest + lint 绿；登录页浅/深复拍（基线 shots/01、21）
+- [x] 两个 blur 光斑元素删除，页面视觉层次 = 网格 + 追踪卡
+- [x] 右栏 h1 字号归字阶（22/28），`text-4xl` 清除
+- [x] SLIPSTREAM 两个取值（0.18em/0.16em）统一为规范值
+- [x] 密码占位符精简（快捷键/操作说明不入 placeholder）
+- [x] 登录卡无入场延迟（或 ≤150ms 且不遮蔽可交互性）
+- [x] build + vitest + lint 绿；登录页浅/深复拍（基线 shots/01、21）

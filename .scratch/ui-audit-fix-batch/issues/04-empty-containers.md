@@ -4,12 +4,12 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 依据：audit.md 像素核验 P4（`shots/06` 灰条实证）。
 
-- [ ] 从未测试的渠道：连接状态卡无消息时不渲染消息框，其余信息（状态/耗时/最近测试）正常
-- [ ] 已有消息的渠道：消息框照常渲染
-- [ ] 全站 grep 同模式（条件渲染空字符串容器）并清理确认
-- [ ] vitest：空消息不渲染断言
-- [ ] build + vitest + lint 绿；渠道详情浅/深复拍
+- [x] 从未测试的渠道：连接状态卡无消息时不渲染消息框，其余信息（状态/耗时/最近测试）正常
+- [x] 已有消息的渠道：消息框照常渲染
+- [x] 全站 grep 同模式（条件渲染空字符串容器）并清理确认
+- [x] vitest：空消息不渲染断言
+- [x] build + vitest + lint 绿；渠道详情浅/深复拍

@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 依据：audit.md C9/C10/R1/R2/N7；`docs/ui.md` §2.3。
 
-- [ ] keys 页删除/重置两个手写 AlertDialog 换统一实现，标题问句化
-- [ ] catalog 封禁确认、渠道封禁/删除、组合删除标题逐一问句化（保持现有双出口语义不变）
-- [ ] 危险按钮前景 `--primary-on`，同一控件不混用两种危险色
-- [ ] vitest 断言：危险确认弹窗角色唯一（alertdialog）且可访问名以问号收尾的标题规范
-- [ ] 全站清点无第二套危险确认实现
-- [ ] build + vitest + lint 绿；删除/封禁/重置三条路径复拍
+- [x] keys 页删除/重置两个手写 AlertDialog 换统一实现，标题问句化
+- [x] catalog 封禁确认、渠道封禁/删除、组合删除标题逐一问句化（保持现有双出口语义不变）
+- [x] 危险按钮前景 `--primary-on`，同一控件不混用两种危险色
+- [x] vitest 断言：危险确认弹窗角色唯一（alertdialog）且可访问名以问号收尾的标题规范
+- [x] 全站清点无第二套危险确认实现
+- [x] build + vitest + lint 绿；删除/封禁/重置三条路径复拍

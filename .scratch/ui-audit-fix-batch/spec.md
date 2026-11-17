@@ -1,6 +1,10 @@
 # Spec: UI 审计修复批次（unslop 全站整改）
 
-Status: ready-for-agent
+Status: resolved (2026-11-18, both batches landed)
+
+Commits: 768c4bc (tickets 01-05, semantics) / 74d98d9 (tickets 06-13, governance + craft) / 18061e9 (gates + docs).
+Gates at close: vitest 40 files / 408 tests passed; build ok; lint:ui 0 error / 16 warning (probes included, zero hits).
+Pixel re-verification: .scratch/ui-audit/shots-after/ (10 shots) — overview endpoints+auth row, log fee/latency dashes, catalog real prices, params panel regroup, question-form delete confirm all confirmed on screen. Remaining manual item: sankey dark-ribbon contrast (CSS-var two-tier verified in build output only).
 Source: `.scratch/ui-unslop-audit/audit.md`（三轮审计证据索引）· ADR-081（组件来源治理）· ADR-082（单价 0=未配置）· `docs/ui.md` 2026-11-18 修订（规范正文）
 Branch: `fix/b82e-breaker-and-cleanup`（当前分支，两批提交，每批过三门禁）
 

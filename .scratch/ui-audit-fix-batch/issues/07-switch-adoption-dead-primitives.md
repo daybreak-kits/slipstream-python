@@ -4,12 +4,12 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 依据：ADR-081 决策 2/4；audit.md A3 + 组件治理盘点。
 
-- [ ] EnabledToggle 行为等价重写（外部 props 契约不变，调用方无感）
-- [ ] `ui/switch` 成为启停唯一实现，手写 `role="switch"` 清零
-- [ ] 5 个死基元文件删除，ui.md §3 已删除类更新（4→9 件）
-- [ ] vitest：渠道/模型启停路径回归通过
-- [ ] build + vitest + lint 绿；渠道列表与详情启停复拍
+- [x] EnabledToggle 行为等价重写（外部 props 契约不变，调用方无感）
+- [x] `ui/switch` 成为启停唯一实现，手写 `role="switch"` 清零
+- [x] 5 个死基元文件删除，ui.md §3 已删除类更新（4→9 件）
+- [x] vitest：渠道/模型启停路径回归通过
+- [x] build + vitest + lint 绿；渠道列表与详情启停复拍
