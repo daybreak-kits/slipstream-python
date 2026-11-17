@@ -486,19 +486,22 @@ client 直连 agw（:9103），Python 仅旁路：非流式计费数据现成（
 
 **P1 复测（生产推荐 env 前提下见 §12.4）**：非流式 200KB CPU/req **4.56ms**（128 QPS 线速）；直连名流式 **11.22ms**、rw 带改写 **10.67ms**（64 QPS 线速）；重载长流 8 QPS p50 **77ms**、CPU 69.5ms。对比 agentgateway：非流式 4.6 vs 1.0ms（4.6×），流式 11.2 vs 3.4ms（3.3×）——**本轮收官后仍未跑赢，但差距从 68×/5× 收敛到 3–5×**；每帧地板（Python ~5µs vs Rust ~0.1µs）与每请求框架底盘（~1.5ms ASGI + ~1.0ms httpx/aiosqlite）是残余差距的主体，对应 ADR-076 阶段 B 的门槛判断，不在 Python 内解决。
 
-### 12.3 未解决项（P1.5 候选，按影响排序）
+### 12.3 P1.5：膝点与 RSS 归因闭环（2026-11-18，py-spy @拐点 + memray 两趟）
 
-1. **~230 RPS 膝点未除**：256 QPS 处仍有 429 shedding（完成率 51–86% 波动）。R4 已砍 SQL 突刺，但 shedding 仍在——嫌疑收敛到「在飞上限 256 本身在延迟膨胀时成为约束」与某处串行点；需开环爬坡 + py-spy 定位后调参或修复。
-2. **RSS 高水位**：重载后平台 ~999MB（活对象粗账 ~90MB，主体是 glibc 对 MB 级 churn 的滞留；对照 agentgateway 39MB 全回落）。allocator env 是权衡不是免费午餐（§12.4）；根治路径 = memray 归因活对象 + 多实例分摊（ADR-060 形态下每进程工作集天然更小）。
-3. **finalize tiktoken 全量分词**（上游缺 usage 时，4MB ≈ 105ms，调研实测）——本轮 mock 恒回 usage 未触发，生产地雷仍在清单上。
-4. ledger/service.py（LEDGER_SPLIT，默认 off）同款内联 fsync 未对称改造（R8 agent 建议，~3 行）。
+**膝点**：加密梯度（192–320 QPS）+ 拐点 py-spy + 抬闸对照实验（`GATEWAY_INFLIGHT_CAP=1024`）。结论：P1 落地后膝点已从 ~230 上移至 **~290–300 RPS**（288 QPS 零 429）；296 起 in-flight 顶格 256 触发 429 shedding（Retry-After:1，快速失败成立）。**抬闸对照证明闸门在保护吞吐**：cap=1024 去掉 shedding 后吞吐反降（152–199 ok/s、p50 3–10s——排队使每请求循环成本 3.4→6.35ms）。拐点处主循环 92.9% busy 里：httpx 组 40.7%（连接池 O(N) 存活扫描 ~10%、200KB 请求体被 httpx 二次 stdlib JSON 编码 8.3%）、stdlib json 15.1%、aiosqlite 8.2%（旁路线程）、GC 0%、WAL fsync 0%（R8 生效）。P1.5 修复（httpx 预编码 bytes、close 置空引用、`_body` 解析后释放、body 渲染 orjson、relay 帽 4M→256K）后复测：**304 QPS 线速（p50 3.8ms、CPU 2.65ms/req）、240 QPS 干净、膝点 ~310**。
+
+**RSS（memray 两趟：峰值持有 vs settle 平台持有）**：重载流平台 703MB = ~250MB 真实活对象 + ~450MB 分配器滞留（逐帧 churn 撕裂 glibc arena，1.2MB 级大块 free 后不还 OS）。活对象里 **183MB 是泄漏类**：160/160 条流完成后 `UpstreamStream.response→Request→编码体`（1.2MB/流）仍被引用——close 不置空引用链存活到进程结束。峰值另有 body 三份拷贝（httpx 编码体 131.6MB + Starlette `_body` 105.3MB + 解析 dict 105.3MB）。P1.5 修复（close 置空 + `_body` 释放 + relay 帽收紧）后复测：平台 999 → **851MB**、HWM 1046 → **888MB**。残余平台 = 活对象（在飞 body 拷贝 ×3 为设计使然）+ arena 滞留，进一步压降需字节域全链路（原始 bytes 直传、按需解析）与逐帧 churn 减半，属结构项。
+
+**tiktoken 估算**（P1.5-D，提交 `89924d7`）：≤128K 字符走真分词（典型输出精度不变），超出走脚本折算（C 级计数，与旧实现 3016 用例逐位一致）；1.2MB finalize 37→1.15ms、4MB 极端 105→23.7ms。`usage_estimated`/缓存口径/思考块计入红线不变。已知行为变化：超长文本 prompt 不再计数非文本 part（旧行为把 base64 高估成 ~250K tok，误差方向改善）；图片常数口径待产品裁定。
+
+**ledger/service.py fsync 对称改造**（默认 off 管线）：与 usage 管线同款 `background_sync` 模式，32 项定向测试过。
 
 ### 12.4 allocator env 权衡（本轮实测，不做默认推荐）
 
 | 配置 | 重载后平台 RSS | HWM | 延迟代价 |
 |---|---|---|---|
-| 默认（无 env） | 999MB | 1046MB | 0 |
-| `MALLOC_ARENA_MAX=2`+`TRIM=128KB` | 750MB | 963MB | 未测出 |
+| 默认（无 env） | 999MB（P1.5 后 851MB） | 1046MB（P1.5 后 888MB） | 0 |
+| `MALLOC_ARENA_MAX=2`+`TRIM=128KB` | 750MB | 963MB | 未测出（收益也弱） |
 | +`MMAP_THRESHOLD=128KB` | **400MB** | 786MB | **大 body p50 数倍劣化**（缺页风暴，非流式 256 完成率 86%→51%） |
 | +`MMAP_THRESHOLD=64KB` | 744MB | 961MB | 同上且封顶更差 |
 
@@ -516,10 +519,10 @@ client 直连 agw（:9103），Python 仅旁路：非流式计费数据现成（
 
 | 阶段 A 门槛 | 现状 |
 |---|---|
-| 每请求 CPU ≤8ms（Linux 开环） | 非流式 4.56ms ✅；流式 11.2ms（2048 帧/50K tok 工况）△ |
-| 70% 容量下网关增量 P99 <20ms | 未直接测（膝点未除，§12.3-1）△ |
-| 过载快速失败而非塌陷 | ✅（429 shedding 全程可控，未再见 §10 的吞吐塌陷） |
-| B2（原生数据面）触发评估 | 非流式未达 <2ms，但差距 3–5× 且每帧/框架地板明确——维持 ADR-076「B1 后用数据决定」，本轮数据已齐，B2 决策待拍板 |
+| 每请求 CPU ≤8ms（Linux 开环） | 非流式 2.65–4.56ms ✅（P1.5 后膝点处 2.65ms）；流式 10.2–11.2ms（2048 帧/50K tok 工况）△ |
+| 70% 容量下网关增量 P99 <20ms | 膝点已上移至 ~310 RPS（§12.3）；304 QPS 非流式 p99 55.9ms 含排队、240 QPS p99 151ms 为末梢抖动——增量口径未单独测，△ |
+| 过载快速失败而非塌陷 | ✅（429 shedding 全程可控；抬闸对照证明闸门在保护吞吐，未再见 §10 的吞吐塌陷） |
+| B2（原生数据面）触发评估 | 非流式未达 <2ms，差距 3–5× 且每帧/框架地板明确——维持 ADR-076「B1 后用数据决定」，用户裁定正常推进、数据留档（2026-11-18） |
 
 ---
 
