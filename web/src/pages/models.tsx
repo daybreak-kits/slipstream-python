@@ -19,6 +19,7 @@ import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Empty } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
 import { Pagination } from "@/components/ui/pagination";
 import {
   Select,
@@ -785,32 +786,30 @@ export function ModelsPage() {
 
   return (
     <div className="animate-fade-up">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-h1 font-semibold tracking-[-0.02em] text-title">模型管理</h1>
-          <p className="mt-1.5 max-w-2xl text-2sm leading-6 text-muted-foreground">
-            全部可调用模型：直连、手动组合与自动组合。优先级按层从大到小排列，数值越大越先调用，同层等概率随机。
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => defaultsRefreshMutation.mutate()}
-            disabled={defaultsRefreshMutation.isPending}
-          >
-            <RefreshCw
-              className={"h-4 w-4" + (defaultsRefreshMutation.isPending ? " animate-spin" : "")}
-              strokeWidth={1.75}
-              aria-hidden="true"
-            />
-            同步 models.dev
-          </Button>
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-            新建组合
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="模型管理"
+        description="全部可调用模型：直连、手动组合与自动组合。优先级按层从大到小排列，数值越大越先调用，同层等概率随机。"
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => defaultsRefreshMutation.mutate()}
+              disabled={defaultsRefreshMutation.isPending}
+            >
+              <RefreshCw
+                className={"h-4 w-4" + (defaultsRefreshMutation.isPending ? " animate-spin" : "")}
+                strokeWidth={1.75}
+                aria-hidden="true"
+              />
+              同步 models.dev
+            </Button>
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              新建组合
+            </Button>
+          </>
+        }
+      />
 
       {defaultsStatusQuery.data || defaultsRefreshMutation.data || defaultsRefreshMutation.isError ? (
         <div className="mt-2 space-y-0.5 text-2xs text-muted-foreground" aria-live="polite">
@@ -1267,7 +1266,8 @@ export function ModelsPage() {
                                       onClick={() => setPendingDelete(row.combo)}
                                     >
                                       <Trash2
-                                        className="h-3.5 w-3.5 text-danger"
+                                        // 危险前景统一 --danger-text（ui.md §2.3）
+                                        className="h-3.5 w-3.5 text-danger-text"
                                         strokeWidth={1.75}
                                         aria-hidden="true"
                                       />

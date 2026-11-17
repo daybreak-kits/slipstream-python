@@ -147,12 +147,16 @@ const modelFormSchema = z.object({
     .max(128, "调用模型最长 128 位")
     .refine((value) => !value || MODEL_NAME_RE.test(value), "调用模型格式不合法"),
   parameters: parametersSchema,
+  // 输入/输出单价允许留空 = 未配置（ADR-082 决策 2）：表单里以 null 表示留空，
+  // 提交时折算回 0 存储，零 schema/API 变更；显式填 0 也按 0 提交，计费语义不变。
   input_price_per_1m: z
-    .number({ invalid_type_error: "请输入输入单价" })
-    .min(0, "单价不能为负数"),
+    .number({ invalid_type_error: "单价需为数字" })
+    .min(0, "单价不能为负数")
+    .nullable(),
   output_price_per_1m: z
-    .number({ invalid_type_error: "请输入输出单价" })
-    .min(0, "单价不能为负数"),
+    .number({ invalid_type_error: "单价需为数字" })
+    .min(0, "单价不能为负数")
+    .nullable(),
   cache_read_price_per_1m: z
     .number({ invalid_type_error: "请输入缓存读取单价" })
     .min(0, "单价不能为负数")
@@ -181,8 +185,9 @@ function defaultsFor(model?: ChannelModel | null): FormValues {
     upstream_model: model?.upstream_model ?? "",
     call_model: model?.call_model ?? "",
     parameters: { ...DEFAULT_MODEL_PARAMETERS, ...(model?.parameters ?? {}) },
-    input_price_per_1m: model?.input_price_per_1m ?? 0,
-    output_price_per_1m: model?.output_price_per_1m ?? 0,
+    // 单价 0 = 未配置（ADR-082）：价格框留空而不是预填哨兵值 0。
+    input_price_per_1m: model && model.input_price_per_1m > 0 ? model.input_price_per_1m : null,
+    output_price_per_1m: model && model.output_price_per_1m > 0 ? model.output_price_per_1m : null,
     cache_read_price_per_1m: model?.cache_read_price_per_1m ?? null,
     cache_write_price_per_1m: model?.cache_write_price_per_1m ?? null,
     enabled: model?.enabled ?? true,
@@ -280,10 +285,11 @@ export function ChannelModelFormDialog({
     };
 
     if (patch.prices.input !== null && !userEdited("input_price_per_1m")) {
-      apply("input_price_per_1m", patch.prices.input);
+      // models.dev 的 0 价同样按未配置处理（ADR-082）：留空而不是预填 0。
+      apply("input_price_per_1m", patch.prices.input > 0 ? patch.prices.input : null);
     }
     if (patch.prices.output !== null && !userEdited("output_price_per_1m")) {
-      apply("output_price_per_1m", patch.prices.output);
+      apply("output_price_per_1m", patch.prices.output > 0 ? patch.prices.output : null);
     }
     if (patch.prices.cacheRead !== null && !userEdited("cache_read_price_per_1m")) {
       apply("cache_read_price_per_1m", patch.prices.cacheRead);
@@ -378,8 +384,9 @@ export function ChannelModelFormDialog({
       upstream_model: values.upstream_model.trim(),
       call_model: values.call_model.trim() || values.upstream_model.trim(),
       parameters,
-      input_price_per_1m: values.input_price_per_1m,
-      output_price_per_1m: values.output_price_per_1m,
+      // 留空 = 未配置：按 0 存储（ADR-082 决策 2），与既有计费语义兼容。
+      input_price_per_1m: values.input_price_per_1m ?? 0,
+      output_price_per_1m: values.output_price_per_1m ?? 0,
       cache_read_price_per_1m: values.cache_read_price_per_1m,
       cache_write_price_per_1m: values.cache_write_price_per_1m,
       enabled: values.enabled,
@@ -542,10 +549,13 @@ export function ChannelModelFormDialog({
                 type="number"
                 min={0}
                 step="0.0001"
+                placeholder="留空 = 未配置"
                 className="tabular-nums"
                 aria-invalid={Boolean(errors.input_price_per_1m)}
                 aria-describedby={errors.input_price_per_1m ? "model-input-price-error" : undefined}
-                {...register("input_price_per_1m", { valueAsNumber: true })}
+                {...register("input_price_per_1m", {
+                  setValueAs: (value) => (value === "" || value === null ? null : Number(value)),
+                })}
               />
               <FieldError id="model-input-price-error" className="text-2xs text-danger-text">
                 {errors.input_price_per_1m?.message}
@@ -561,10 +571,13 @@ export function ChannelModelFormDialog({
                 type="number"
                 min={0}
                 step="0.0001"
+                placeholder="留空 = 未配置"
                 className="tabular-nums"
                 aria-invalid={Boolean(errors.output_price_per_1m)}
                 aria-describedby={errors.output_price_per_1m ? "model-output-price-error" : undefined}
-                {...register("output_price_per_1m", { valueAsNumber: true })}
+                {...register("output_price_per_1m", {
+                  setValueAs: (value) => (value === "" || value === null ? null : Number(value)),
+                })}
               />
               <FieldError id="model-output-price-error" className="text-2xs text-danger-text">
                 {errors.output_price_per_1m?.message}

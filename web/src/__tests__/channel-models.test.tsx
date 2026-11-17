@@ -297,7 +297,7 @@ describe("channel models panel", () => {
     await user.type(within(dialog).getByLabelText("上游模型名"), "scheduled-model");
 
     // 时区走可搜索下拉，不能手打；搜索并选中 America/New_York
-    await user.click(within(dialog).getByRole("combobox", { name: "IANA 时区" }));
+    await user.click(within(dialog).getByRole("button", { name: "IANA 时区" }));
     await user.type(screen.getByPlaceholderText("搜索时区，如 Tokyo / Europe"), "New_York");
     await user.click(await screen.findByRole("option", { name: /America\/New_York/ }));
 
@@ -426,7 +426,10 @@ describe("channel models panel", () => {
     expect(screen.getByRole("button", { name: "启用 off-model" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "封禁 healthy-model" }));
-    expect(screen.getByRole("heading", { name: "封禁模型" })).toBeInTheDocument();
+    // 危险确认统一 alertdialog 语义 + 问句标题（ui.md §2.3）
+    expect(
+      screen.getByRole("alertdialog", { name: "封禁模型 healthy-model？" }),
+    ).toBeInTheDocument();
     expect(calls.some((call) => call.method === "PATCH")).toBe(false);
     await user.click(screen.getByRole("button", { name: "确认封禁" }));
     await waitFor(() => {
@@ -506,6 +509,30 @@ describe("channel models panel", () => {
 
     expect(within(table).getByText("缓存按输入价")).toBeInTheDocument();
     expect(within(table).getByText("缓存读 $0.05 / 写 $0.15")).toBeInTheDocument();
+  });
+
+  it("renders zero unit prices as unconfigured, never $0.00 (ADR-082)", async () => {
+    setupFetch([
+      makeModel(),
+      makeModel({
+        id: "CM000000000000000000000002",
+        upstream_model: "unpriced-model",
+        call_model: "unpriced",
+        input_price_per_1m: 0,
+        output_price_per_1m: 0,
+      }),
+    ]);
+
+    renderPanel();
+    const table = await screen.findByRole("table");
+
+    // 已配置行显示真实单价；未配置行数值位是「—」，原因放 hint。
+    expect(within(table).getByText("$0.50 / $1.50")).toBeInTheDocument();
+    const unpricedRow = within(table).getByText("unpriced-model").closest("tr");
+    expect(unpricedRow).not.toBeNull();
+    expect(within(unpricedRow as HTMLElement).getByText("— / —")).toBeInTheDocument();
+    expect(within(unpricedRow as HTMLElement).getByText("未配置单价")).toBeInTheDocument();
+    expect(within(table).queryByText(/\$0\.00/)).not.toBeInTheDocument();
   });
 
   it("submits cache prices from the model form", async () => {

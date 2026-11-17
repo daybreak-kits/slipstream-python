@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -182,5 +182,36 @@ describe("channel keys panel", () => {
         screen.queryByLabelText("编辑密钥备注"),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  // 危险确认统一 alertdialog 语义 + 问句标题（ui.md §2.3）
+  it("delete confirm is an alertdialog with a question-form title", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (
+        String(input).endsWith("/api/channels/CH1/keys/CK000000000000000000000001") &&
+        init?.method === "DELETE"
+      ) {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderPanel();
+    await user.click(screen.getByRole("button", { name: "删除密钥 主密钥" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(
+      screen.getByRole("alertdialog", { name: "删除渠道密钥 主密钥？" }),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "确认删除" }));
+
+    await waitFor(() => {
+      const deletes = fetchMock.mock.calls.filter(
+        ([, requestInit]) => requestInit?.method === "DELETE",
+      );
+      expect(deletes).toHaveLength(1);
+    });
   });
 });

@@ -103,9 +103,11 @@ export function aggregateComboParams(sources: readonly ComboParamSource[]): Comb
 }
 
 function rangeText(range: ComboPriceRange): string {
-  return range.min === range.max
-    ? formatPricePer1m(range.min)
-    : formatPricePer1m(range.min) + "–" + formatPricePer1m(range.max);
+  if (range.min === range.max) return formatPricePer1m(range.min);
+  // 区间下限 0 = 有成员未配置单价（ADR-082）：破折号与上界之间留空格，
+  // 避免 "—–$3.00" 双破折号连排被读成乱码。
+  if (range.min === 0) return formatPricePer1m(range.min) + " – " + formatPricePer1m(range.max);
+  return formatPricePer1m(range.min) + "–" + formatPricePer1m(range.max);
 }
 
 /** 价格区间的单行文本：不合成单一价格，区间 + 「按成员计费」由调用方补。 */

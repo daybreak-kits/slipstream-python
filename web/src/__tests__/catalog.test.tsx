@@ -1,6 +1,6 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -64,6 +64,39 @@ describe("model catalog management", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders unconfigured prices as a dash, never $0.00 (ADR-082)", async () => {
+    const items = [
+      directEntry(),
+      directEntry({
+        id: "CM000000000000000000000002",
+        name: "beta/unconfigured-model",
+        upstream_model: "unconfigured-model",
+        call_model: "unconfigured-model",
+        input_price_per_1m: 0,
+        output_price_per_1m: 0,
+      }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith("/api/catalog") && (init?.method ?? "GET") === "GET") {
+          return jsonResponse({ items, total: items.length });
+        }
+        return jsonResponse({ code: "NOT_FOUND", message: "not found" }, 404);
+      }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("beta/live-model")).toBeInTheDocument();
+    // 未配置（0）数值位是「—」；已配置（mock 0.5/2.0 同口径）显示真实价格。
+    expect(screen.getByText("入 $1.00 / 出 $2.00 / 缓存 —")).toBeInTheDocument();
+    expect(screen.getByText("入 — / 出 — / 缓存 —")).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(within(table).queryByText(/\$0\.00/)).not.toBeInTheDocument();
+  });
+
   it("keeps banned direct models listed and lets them be enabled again", async () => {
     const calls: Array<{ url: string; method: string; body: unknown }> = [];
     const items = [
@@ -117,5 +150,32 @@ describe("model catalog management", () => {
     });
     // 健康正常的停用模型只需写回 enabled，不再叠一次复位。
     expect(calls.some((call) => call.url.endsWith("/reset"))).toBe(false);
+  });
+
+  // catalog 封禁确认标题问句化（audit N7/CRUD-R2；封禁含冷却选项故保留表单 Dialog，只改标题形态）
+  it("opens the ban dialog with a question-form title", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith("/api/catalog") && (init?.method ?? "GET") === "GET") {
+          return jsonResponse({ items: [directEntry()], total: 1 });
+        }
+        return jsonResponse({ code: "NOT_FOUND", message: "not found" }, 404);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "封禁 beta/live-model" }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(
+      screen.getByRole("dialog", { name: "封禁 beta/live-model？" }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: "封禁（永久）" })).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

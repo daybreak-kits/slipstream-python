@@ -358,8 +358,59 @@ describe("models.dev prefill defaults", () => {
       () => expect(within(dialog).getByRole("note")).toHaveTextContent("暂无 models.dev 默认值"),
       { timeout: 3000 },
     );
-    expect(within(dialog).getByLabelText("输入单价 / 1M")).toHaveValue(0);
+    expect(within(dialog).getByLabelText("输入单价 / 1M")).toHaveValue(null);
     expect(within(dialog).getByRole("button", { name: "保存" })).toBeEnabled();
+  });
+
+  it("leaves price inputs blank instead of prefilling 0 (ADR-082 决策 2)", async () => {
+    renderDialog(
+      async () => jsonResponse({ code: "NOT_FOUND", message: "not found" }, 404),
+      channelModel({ input_price_per_1m: 0, output_price_per_1m: 0 }),
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    // 编辑已有 0 价模型：价格框显示为空而非哨兵值 0，语义由占位符说明。
+    expect(within(dialog).getByLabelText("输入单价 / 1M")).toHaveValue(null);
+    expect(within(dialog).getByLabelText("输出单价 / 1M")).toHaveValue(null);
+    expect(within(dialog).getByLabelText("输入单价 / 1M")).toHaveAttribute(
+      "placeholder",
+      "留空 = 未配置",
+    );
+    expect(within(dialog).getByLabelText("输出单价 / 1M")).toHaveAttribute(
+      "placeholder",
+      "留空 = 未配置",
+    );
+    // 缓存价的「留空 = …」既有模式不受影响。
+    expect(within(dialog).getByLabelText("缓存读取单价 / 1M")).toHaveAttribute(
+      "placeholder",
+      "留空 = 按输入价",
+    );
+  });
+
+  it("stores 0 when prices are submitted blank (行为兼容)", async () => {
+    const calls: Array<{ url: string; method: string; body: unknown }> = [];
+    renderDialog(
+      async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (method === "PATCH" && url === "/api/channel-models/CM000000000000000000000001") {
+          calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
+          return jsonResponse(channelModel());
+        }
+        return jsonResponse({ code: "NOT_FOUND", message: "not found" }, 404);
+      },
+      channelModel({ input_price_per_1m: 0, output_price_per_1m: 0 }),
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    // 留空提交按 0 存储：零 schema/API 变更，语义与现状兼容。
+    expect(calls[0].body).toMatchObject({
+      input_price_per_1m: 0,
+      output_price_per_1m: 0,
+    });
   });
 
   it("describes per-field sources with the provider list and merge rule", () => {
@@ -614,6 +665,24 @@ describe("combo parameter union", () => {
     expect(empty.price).toBeNull();
     expect(comboPriceRangeText(empty)).toBeNull();
     expect(comboParamLines(empty)).toContain("能力 未声明");
+  });
+
+  it("renders unconfigured members without $0.00 in the price range (ADR-082)", () => {
+    // 成员单价 0 = 未配置（ADR-082），区间下限不再渲染 $0.00。
+    const allUnconfigured = aggregateComboParams([
+      comboSource({ input_price_per_1m: 0, output_price_per_1m: 0 }),
+    ]);
+    expect(comboPriceRangeText(allUnconfigured)).toBe("入 — / 出 —");
+
+    const mixed = aggregateComboParams([
+      comboSource({ input_price_per_1m: 0, output_price_per_1m: 0 }),
+      comboSource({ input_price_per_1m: 3, output_price_per_1m: 6 }),
+    ]);
+    const range = comboPriceRangeText(mixed);
+    expect(range).not.toContain("$0.00");
+    expect(range).toContain("$3.00");
+    // 不产出 "—–$3.00" 这类双破折号连排。
+    expect(range).not.toMatch(/—–/);
   });
 });
 

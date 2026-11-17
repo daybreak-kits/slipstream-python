@@ -611,7 +611,8 @@ export function ChannelKeysPanel({
         onOpenChange={(next) => {
           if (!next) setDeleteTarget(null);
         }}
-        title="删除渠道密钥"
+        // 危险确认标题问句化（ui.md §2.3）
+        title={deleteTarget ? `删除渠道密钥 ${deleteTarget.label}？` : "删除渠道密钥？"}
         description={
           deleteTarget
             ? `确定删除「${deleteTarget.label}」吗？删除后该密钥立即停止参与轮换。若这是最后一个密钥，渠道将以无密钥方式请求上游。`

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { formatDuration, formatDurationAdaptive } from "@/lib/duration";
+import { isLatencyMissing } from "@/lib/latency";
 
 describe("formatDuration", () => {
   it("renders seconds with two decimals by default", () => {
@@ -50,5 +51,30 @@ describe("formatDurationAdaptive", () => {
     expect(formatDurationAdaptive(null)).toBe("—");
     expect(formatDurationAdaptive(undefined)).toBe("—");
     expect(formatDurationAdaptive(-5)).toBe("—");
+  });
+});
+
+describe("isLatencyMissing (ADR-082 口径族：无数据不渲染 0.00s)", () => {
+  it("treats 0/null ttft and ttfa on failed requests as no data", () => {
+    expect(isLatencyMissing(0, "ttft", true)).toBe(true);
+    expect(isLatencyMissing(0, "ttfa", true)).toBe(true);
+    expect(isLatencyMissing(null, "ttft", true)).toBe(true);
+    expect(isLatencyMissing(Number.NaN, "ttfa", true)).toBe(true);
+    // 输出中途才失败的请求：真实测到的首字/首答保留。
+    expect(isLatencyMissing(120, "ttft", true)).toBe(false);
+    expect(isLatencyMissing(150, "ttfa", true)).toBe(false);
+  });
+
+  it("keeps 0 ttft/ttfa meaningful on succeeded requests", () => {
+    expect(isLatencyMissing(0, "ttft", false)).toBe(false);
+    expect(isLatencyMissing(0, "ttfa", false)).toBe(false);
+    expect(isLatencyMissing(null, "ttft", false)).toBe(true);
+  });
+
+  it("treats total 0 as no upstream report regardless of outcome", () => {
+    expect(isLatencyMissing(0, "total", true)).toBe(true);
+    expect(isLatencyMissing(0, "total", false)).toBe(true);
+    expect(isLatencyMissing(1500, "total", false)).toBe(false);
+    expect(isLatencyMissing(null, "total", false)).toBe(true);
   });
 });

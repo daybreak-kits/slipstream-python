@@ -26,9 +26,10 @@ import {
   type LogAttempt,
   type RequestLog,
 } from "@/lib/logs";
-import { formatCostOrUnconfigured } from "@/lib/format";
+import { formatRequestCost } from "@/lib/format";
 import {
   formatLatency,
+  isLatencyMissing,
   latencyDescription,
 } from "@/lib/latency";
 import { formatDateTime, useTimezone } from "@/lib/time";
@@ -102,7 +103,7 @@ function Section({
 }) {
   return (
     <section className="border-t border-border px-5 py-4">
-      <h3 className="text-2xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{title}</h3>
+      <h3 className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{title}</h3>
       <div className="mt-3">{children}</div>
     </section>
   );
@@ -383,25 +384,36 @@ function DrawerBody({ log, hideSensitive }: { log: RequestLog; hideSensitive: bo
             <span title={hideSensitive ? "敏感信息已隐藏" : undefined}>
               {hideSensitive
                 ? MASKED_VALUE
-                : formatCostOrUnconfigured(
+                : formatRequestCost(
                     log.cost_usd,
                     log.prompt_tokens + log.completion_tokens + log.cached_tokens,
+                    isErrorLog(log),
                   )}
             </span>
           </Field>
           <Field label="吞吐">{formatThroughput(log.throughput_tps)}</Field>
           <Field label="首字耗时">
-            <span title={latencyDescription(log.ttft_ms, "ttft")}>{formatLatency(log.ttft_ms)}</span>
+            {isLatencyMissing(log.ttft_ms, "ttft", isErrorLog(log)) ? (
+              <span className="text-2xs text-muted-foreground" title="首字无数据">—</span>
+            ) : (
+              <span title={latencyDescription(log.ttft_ms, "ttft")}>{formatLatency(log.ttft_ms)}</span>
+            )}
           </Field>
           <Field label="首答耗时">
-            {ttfaMissing(log) ? (
+            {!isErrorLog(log) && ttfaMissing(log) ? (
               <span className="text-2xs text-muted-foreground">{TTFA_NO_CONTENT_LABEL}</span>
+            ) : isLatencyMissing(log.ttfa_ms, "ttfa", isErrorLog(log)) ? (
+              <span className="text-2xs text-muted-foreground" title="首答无数据">—</span>
             ) : (
               <span title={latencyDescription(log.ttfa_ms, "ttfa")}>{formatLatency(log.ttfa_ms)}</span>
             )}
           </Field>
           <Field label="总耗时">
-            <span title={latencyDescription(log.total_ms, "total")}>{formatLatency(log.total_ms)}</span>
+            {isLatencyMissing(log.total_ms, "total") ? (
+              <span className="text-2xs text-muted-foreground" title="总耗时无数据">—</span>
+            ) : (
+              <span title={latencyDescription(log.total_ms, "total")}>{formatLatency(log.total_ms)}</span>
+            )}
           </Field>
           <Field label="用量来源">{log.usage_estimated ? "估算" : "上游返回"}</Field>
           <AddressField

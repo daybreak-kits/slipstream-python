@@ -652,7 +652,7 @@ describe("models page bulk actions", () => {
 
     const dialog = await screen.findByRole("dialog");
     // 既有排期要回填到编辑器：时区、规则行与摘要都应直接可见。
-    expect(within(dialog).getByRole("combobox", { name: "IANA 时区" })).toHaveTextContent(
+    expect(within(dialog).getByRole("button", { name: "IANA 时区" })).toHaveTextContent(
       "Asia/Shanghai",
     );
     expect(within(dialog).getByLabelText("第 1 条规则的开始时刻")).toHaveValue("10:00");

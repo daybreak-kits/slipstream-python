@@ -114,7 +114,8 @@ export function AvailabilityControl({
         aria-label={label + " " + subject}
         disabled={busy}
         onClick={openControl}
-        className={action === "ban" ? "text-danger" : "text-success-text"}
+        // 危险前景统一 --danger-text（ui.md §2.3：同一控件不混用两种危险色）
+        className={action === "ban" ? "text-danger-text" : "text-success-text"}
       >
         {busy ? (
           <Spinner size="sm" label="" aria-hidden="true" />
@@ -127,7 +128,8 @@ export function AvailabilityControl({
       <Dialog open={stopOpen} onOpenChange={setStopOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>封禁 {subject}</DialogTitle>
+            {/* 封禁是危险动作：标题问句化（audit N7）。含冷却表单故保留 Dialog 形态，只改标题。 */}
+            <DialogTitle>封禁 {subject}？</DialogTitle>
             <DialogDescription>
               两种方式都让模型不接流量：封禁是永久的、不出现在 /v1/models；冷却到期自动恢复、期间仍可见。
             </DialogDescription>

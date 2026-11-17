@@ -25,16 +25,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Empty } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -108,7 +102,6 @@ export function ChannelsPage() {
   const debouncedSearch = useDebouncedValue(search);
   const searching = search !== debouncedSearch;
   const [deleting, setDeleting] = useState<Channel | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [batchBusy, setBatchBusy] = useState<ChannelBatchAction | null>(null);
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
@@ -144,16 +137,14 @@ export function ChannelsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => deleteChannel(id),
-    onSuccess: async (_result, id) => {
-      const deleted = deleting;
-      setDeleting(null);
-      setDeleteError(null);
-      notify.success(deleted ? `已删除渠道 ${deleted.name}` : "渠道已删除");
+    // ConfirmDialog 点确认即关闭：把渠道整个传进来，成功 toast 才拿得到名字
+    mutationFn: (channel: Channel) => deleteChannel(channel.id),
+    onSuccess: async (_result, channel) => {
+      notify.success(`已删除渠道 ${channel.name}`);
       await queryClient.invalidateQueries({ queryKey: ["channels"] });
-      queryClient.removeQueries({ queryKey: ["channel", id] });
+      queryClient.removeQueries({ queryKey: ["channel", channel.id] });
     },
-    onError: (error) => setDeleteError(describeApiError(error)),
+    onError: (error) => notify.error("删除渠道失败", { description: describeApiError(error) }),
   });
 
   const items = channelsQuery.data?.items ?? [];
@@ -239,20 +230,18 @@ export function ChannelsPage() {
 
   return (
     <div className="animate-fade-up">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-h1 font-semibold tracking-[-0.02em] text-title">渠道管理</h1>
-          <p className="mt-1.5 max-w-2xl text-2sm leading-6 text-muted-foreground">
-            点击名称进入编辑页。保存写入配置但不会探测上游；测试连接与获取模型始终使用页面上最新填写的值。
-          </p>
-        </div>
-        <Button asChild className="ml-auto">
-          <Link to="/channels/new">
-            <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-            新建渠道
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        title="渠道管理"
+        description="点击名称进入编辑页。保存写入配置但不会探测上游；测试连接与获取模型始终使用页面上最新填写的值。"
+        actions={
+          <Button asChild>
+            <Link to="/channels/new">
+              <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              新建渠道
+            </Link>
+          </Button>
+        }
+      />
 
       <Card className="mt-6 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -573,7 +562,6 @@ export function ChannelsPage() {
                             aria-label={"删除 " + channel.name}
                             onClick={() => {
                               setDeleting(channel);
-                              setDeleteError(null);
                             }}
                           >
                             <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
@@ -588,97 +576,60 @@ export function ChannelsPage() {
         )}
       </Card>
 
-      <Dialog
+      {/* 危险确认统一走 ui/confirm-dialog（ui.md §2.3）：alertdialog 语义 + 问句标题。
+          级联说明（模型一并删除 / 组合引用拒绝）原样保留。 */}
+      <ConfirmDialog
         open={Boolean(deleting)}
         onOpenChange={(open) => {
           if (!open && !deleteMutation.isPending) setDeleting(null);
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>删除渠道</DialogTitle>
-            <DialogDescription>
+        title={deleting ? `删除渠道 ${deleting.name}？` : ""}
+        description={
+          <>
+            <span className="block">
               {deleting ? `即将删除 ${deleting.name}（${deleting.slug}）。` : undefined}
-            </DialogDescription>
-          </DialogHeader>
-          <p className="text-2sm leading-6 text-body">
-            渠道下的模型会一并删除；如果任一模型已被组合引用，删除会被拒绝，请先解除组合引用。
-          </p>
-          {deleteError ? (
-            <Alert variant="destructive">
-              {deleteError}
-            </Alert>
-          ) : null}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={deleteMutation.isPending}
-              onClick={() => setDeleting(null)}
-            >
-              取消
-            </Button>
-            <Button
-              variant="danger"
-              disabled={deleteMutation.isPending}
-              onClick={() => {
-                if (deleting) deleteMutation.mutate(deleting.id);
-              }}
-            >
-              {deleteMutation.isPending ? (
-                <Spinner size="sm" label="正在删除" />
-              ) : (
-                <Trash2 className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-              )}
-              确认删除
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </span>
+            <span className="block">
+              渠道下的模型会一并删除；如果任一模型已被组合引用，删除会被拒绝，请先解除组合引用。
+            </span>
+          </>
+        }
+        confirmLabel="确认删除"
+        destructive
+        onConfirm={() => {
+          if (deleting) deleteMutation.mutate(deleting);
+        }}
+      />
 
-      <Dialog
+      <ConfirmDialog
         open={batchDeleteOpen}
         onOpenChange={(open) => {
           if (!open && !batchBusy) setBatchDeleteOpen(false);
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>批量删除渠道</DialogTitle>
-            <DialogDescription>
-              {selectedChannels.length > 0
-                ? "即将删除选中的 " + selectedChannels.length + " 个渠道。"
-                : undefined}
-            </DialogDescription>
-          </DialogHeader>
-          <p className="text-2sm leading-6 text-body">
-            渠道下的模型会一并删除；任一模型被组合引用时，该渠道会被拒绝删除，其余渠道继续执行。
-          </p>
-          <p className="text-xs leading-5 text-muted-foreground">
-            选中的渠道：{selectedChannels.map((channel) => channel.name).join("、")}
-          </p>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={batchBusy === "delete"}
-              onClick={() => setBatchDeleteOpen(false)}
-            >
-              取消
-            </Button>
-            <Button
-              variant="danger"
-              disabled={batchBusy === "delete"}
-              onClick={() => runBatch("delete")}
-            >
-              {batchBusy === "delete" ? (
-                <Spinner size="sm" label="正在删除" />
-              ) : (
-                <Trash2 className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-              )}
-              确认删除
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title={
+          selectedChannels.length > 0
+            ? `删除选中的 ${selectedChannels.length} 个渠道？`
+            : "删除选中的渠道？"
+        }
+        description={
+          <>
+            {selectedChannels.length > 0 ? (
+              <span className="block">即将删除选中的 {selectedChannels.length} 个渠道。</span>
+            ) : null}
+            <span className="block">
+              渠道下的模型会一并删除；任一模型被组合引用时，该渠道会被拒绝删除，其余渠道继续执行。
+            </span>
+            {selectedChannels.length > 0 ? (
+              <span className="mt-2 block text-xs leading-5 text-muted-foreground">
+                选中的渠道：{selectedChannels.map((channel) => channel.name).join("、")}
+              </span>
+            ) : null}
+          </>
+        }
+        confirmLabel="确认删除"
+        destructive
+        onConfirm={() => runBatch("delete")}
+      />
     </div>
   );
 }
