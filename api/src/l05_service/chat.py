@@ -1183,10 +1183,9 @@ class StreamRun:
         # ADR-074/075: relayed thinking counts toward the output estimate too --
         # the upstream generated it (and billed providers charged for it)
         # even when the client never received a final answer. The observers
-        # buffer the relayed text (bounded), so the estimate counts tokens
-        # with a real tokenizer (tiktoken/o200k_base) and falls back to a
-        # script-aware char heuristic（ASCII/4、非 ASCII ×1.5）when the
-        # vocabulary is unavailable (offline first run).
+        # buffer the relayed text (bounded); billing 折算是有界的：阈值内的
+        # 文本用真分词器（tiktoken/o200k_base）计数，超出走脚本折算
+        # （ASCII/4、非 ASCII ×1.5），长流收尾的估算成本不随输出长度膨胀。
         relayed_chars = self.stream.content_chars + self.stream.reasoning_chars
         text = self.stream.relay_text
         overflow = max(0, relayed_chars - len(text))

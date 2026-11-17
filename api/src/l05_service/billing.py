@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Iterator
 
 from l01_core.logging import get_logger
 from l04_repo import orm
@@ -73,9 +73,22 @@ def estimate_usage_from_chars(
 
 
 # ---------------------------------------------------------------------------
-# Tokenizer-backed fallback estimation (ADR-075 修订): real token counts when
-# the tiktoken vocabulary is available, script-aware char heuristic otherwise.
+# Tokenizer-backed fallback estimation (ADR-075 修订): bounded estimation --
+# text within the tiktoken budget gets real token counts, anything larger is
+# folded by the script-aware heuristic so the cost stays bounded no matter
+# how big the relayed text grows.
 # ---------------------------------------------------------------------------
+
+# tiktoken 精确分词的文本长度上限（字符数）。实测 encode_ordinary ~38MB/s：
+# 128K 字符以内最坏 ~10ms（中文 ≈ 384KB UTF-8），真分词器的精度收益大于成本；
+# 超出后编码成本随文本线性膨胀（4MB ≈ 105ms，且发生在流式 finalize、与在飞
+# 请求抢同一事件循环），改走 heuristic_tokens 的脚本折算（ADR-075 口径，
+# 误差量级见 docs/upstream_transport.md §11.4-1：±30%，随语言变化）。
+_TIKTOKEN_MAX_CHARS = 131_072
+
+# 启发式 prompt 折算里每条消息的 JSON 结构开销（role/content 键名、引号等，
+# o200k 下约 6-10 tok，取中值）。仅在跳过完整序列化的 prompt 折算路径上使用。
+_PROMPT_STRUCT_TOKENS = 8
 
 _TIKTOKEN_STATE: str = "untried"  # untried | ready | unavailable
 _TIKTOKEN_ENCODING: Any = None
@@ -103,10 +116,58 @@ def _get_tiktoken_encoding() -> Any:
     return _TIKTOKEN_ENCODING
 
 
+# UTF-8 字节映射表：多字节序列的首字节（≥ 0xC0）标记为 1，ASCII 字节与
+# 续字节（0x80-0xBF）标记为 0。首字节个数 == 非 ASCII 字符个数。
+_U8_FIRST_BYTE_MARKS = bytes(1 if b >= 0xC0 else 0 for b in range(256))
+
+
 def heuristic_tokens(text: str) -> int:
     # ASCII（英文/数字/常见符号）按 4 字符/词元；非 ASCII（中文等）按 1.5 词元/字。
-    ascii_chars = sum(1 for ch in text if ord(ch) < 128)
-    return ascii_chars // 4 + ((len(text) - ascii_chars) * 3) // 2
+    # 实现走 isascii 快路径 + UTF-8 首字节标记计数，全程 C 级扫描：旧的逐字符
+    # Python 循环只有 ~10MB/s，4MB relay 文本要数百毫秒，与 tiktoken 一样是
+    # finalize 的延迟尖峰来源。与旧实现逐位一致：len - 首字节数 即 ASCII 字符数。
+    if text.isascii():
+        return len(text) // 4
+    # lone surrogate 按 3 字节编码（首字节 ED ≥ 0xC0），同样计 1 个非 ASCII 字，
+    # 与逐字符实现一致；surrogatepass 保证估算路径永不抛编码错误。
+    non_ascii = text.encode("utf-8", "surrogatepass").translate(_U8_FIRST_BYTE_MARKS).count(1)
+    return (len(text) - non_ascii) // 4 + (non_ascii * 3) // 2
+
+
+def _prompt_text_parts(messages: list[dict[str, Any]]) -> Iterator[str]:
+    # Yield the token-relevant text of a message list: content 字符串或多模态
+    # part 的 text 字段、tool_calls 的 arguments JSON。粗估与启发式折算共用这一
+    # 份提取逻辑，两边对「什么算 prompt 文本」的认识不会漂移。
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, str):
+            yield content
+        elif isinstance(content, list):
+            # 非 text 的 part（如图片）不进粗估与折算：带图且文本量小的请求仍会
+            # 走精确路径、按完整序列化计数，与既有行为一致。
+            for part in content:
+                if isinstance(part, dict):
+                    text = part.get("text")
+                    if isinstance(text, str):
+                        yield text
+        calls = message.get("tool_calls")
+        if isinstance(calls, list):
+            for call in calls:
+                if isinstance(call, dict):
+                    arguments = (call.get("function") or {}).get("arguments")
+                    if isinstance(arguments, str):
+                        yield arguments
+
+
+def _prompt_chars(messages: list[dict[str, Any]]) -> int:
+    """Cheap prompt magnitude check: sum content lengths, no serialization."""
+    return sum(len(text) for text in _prompt_text_parts(messages))
+
+
+def _prompt_heuristic_tokens(messages: list[dict[str, Any]]) -> int:
+    """Script-rate folding for prompts too large (or unable) to tokenize exactly."""
+    tokens = sum(heuristic_tokens(text) for text in _prompt_text_parts(messages))
+    return max(1, tokens + len(messages) * _PROMPT_STRUCT_TOKENS)
 
 
 def estimate_usage_from_text(
@@ -115,19 +176,31 @@ def estimate_usage_from_text(
     prompt_tokens: int = 0,
     completion_overflow_chars: int = 0,
 ) -> Usage:
-    # Estimate from relayed text: tiktoken counts when the vocabulary loaded,
-    # otherwise the script-aware heuristic. completion_overflow_chars covers
-    # text beyond the stream buffer cap -- counted at the non-ASCII rate as
-    # the conservative side of the heuristic (long outputs skew multilingual).
-    encoding = _get_tiktoken_encoding()
+    # Estimate from relayed text, bounded: text within _TIKTOKEN_MAX_CHARS is
+    # counted by the real tokenizer (when the vocabulary loaded), anything
+    # larger falls to the script-aware heuristic so finalize cost stays at the
+    # millisecond level. completion_overflow_chars covers text beyond the
+    # stream buffer cap -- counted at the non-ASCII rate as the conservative
+    # side of the heuristic (long outputs skew multilingual).
+    prompt_needs_encode = False
     if not prompt_tokens:
-        serialized = json.dumps(messages, ensure_ascii=False)
-        prompt_tokens = (
-            len(encoding.encode_ordinary(serialized))
-            if encoding is not None
-            else heuristic_tokens(serialized)
-        )
-    if encoding is not None:
+        prompt_needs_encode = _prompt_chars(messages) <= _TIKTOKEN_MAX_CHARS
+    completion_needs_encode = len(completion_text) <= _TIKTOKEN_MAX_CHARS
+    # 词表按需懒加载：两侧都超阈值时不为一词表下载付出首包 ~7s。
+    encoding = (
+        _get_tiktoken_encoding()
+        if (prompt_needs_encode or completion_needs_encode)
+        else None
+    )
+    if not prompt_tokens:
+        if prompt_needs_encode and encoding is not None:
+            # 小 prompt 只在此处序列化一次（阈值内 dumps 成本可忽略）。
+            serialized = json.dumps(messages, ensure_ascii=False)
+            prompt_tokens = len(encoding.encode_ordinary(serialized))
+        else:
+            # 大 prompt（或词表不可用）不构造完整 JSON：逐段折算 + 结构常数。
+            prompt_tokens = _prompt_heuristic_tokens(messages)
+    if completion_needs_encode and encoding is not None:
         completion_tokens = len(encoding.encode_ordinary(completion_text))
     else:
         completion_tokens = heuristic_tokens(completion_text)
