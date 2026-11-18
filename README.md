@@ -12,9 +12,19 @@
 
 ## 界面预览
 
-| 数据看板 | 模型管理 |
+截图为本地演示数据（内置 fake upstream 生成流量，非真实供应商）。
+
+| 登录 | 全局概览 |
 |---|---|
-| ![数据看板](docs/screenshots/dashboard.png) | ![模型管理](docs/screenshots/models.png) |
+| ![登录](docs/screenshots/login.jpg) | ![全局概览](docs/screenshots/overview.jpg) |
+
+| 数据看板 · 分流图 | 渠道管理 |
+|---|---|
+| ![数据看板 · 分流图](docs/screenshots/dashboard-flow.jpg) | ![渠道管理](docs/screenshots/channels.jpg) |
+
+| 模型管理 | 使用日志 |
+|---|---|
+| ![模型管理](docs/screenshots/models.jpg) | ![使用日志](docs/screenshots/logs.jpg) |
 
 ## Quick Start
 
