@@ -1984,7 +1984,16 @@ class UpstreamStream:
         # 释放对响应/请求对象的引用：memray 归因显示 finalize 之后若仍持有
         # response（其上挂着 1.2MB 级的编码请求体），引用链会存活到进程结束
         # （160 条流 = 183MB 不归还）。迭代器已关闭，这里置空是纯回收。
-        self.response = None
+        # P2 泄漏补刀：httpx 层 Response._request -> Request -> content(1.2MB)
+        # 与 Response.stream(BoundAsyncStream) 是 ffrefs 归因锁定的滞留链——
+        # aclose 不清这两个属性，请求体字节会滞留到进程结束。
+        response, self.response = self.response, None
+        if response is not None:
+            try:
+                response._request = None
+                response.stream = None
+            except AttributeError:
+                pass
         self._byte_iter = None
         self._line_iter = None
         self._raw_buf = b""
