@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* shadcn v4 convention: enter/exit animation utilities (animate-in, fade-in-0,
+   zoom-in-95, slide-in-from-*) used by vendored ui components come from this
+   package; without the import the classes compile to nothing. */
+@import "tw-animate-css";
 
 /* Dark is class-based: .dark is set on <html> by src/lib/theme.ts and the
    anti-flash script in index.html. Declaring the variant keeps future dark:*
