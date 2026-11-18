@@ -44,9 +44,9 @@
 
 | 层 | 技术 |
 |---|---|
-| 后端 | Python 3.12+、FastAPI 0.115、SQLAlchemy 2.0 async、aiosqlite、httpx 0.28、PyJWT、cryptography、LiteLLM 1.108.4 |
+| 后端 | Python 3.12+、FastAPI 0.115、SQLAlchemy 2.0 async、aiosqlite、httpx 0.28、PyJWT、cryptography、LiteLLM 1.108.4（**可选传输**：`requirements-litellm.txt`，默认 httpx 不安装） |
 | 前端 | Vite 7、React 19、TypeScript 5.9、React Router 7、TanStack Query 5、react-hook-form、zod、Tailwind 3、lucide-react |
-| 测试 | pytest 8 + pytest-asyncio；Vitest 3 + Testing Library（视觉回归为人工验收，无自动化截图基线） |
+| 测试 | pytest 9 + pytest-asyncio + xdist（`requirements-dev.txt`，不进生产依赖）；Vitest 3 + Testing Library（视觉回归为人工验收，无自动化截图基线） |
 | 存储 | SQLite（WAL、busy_timeout=15s、手写增量迁移） |
 
 ### 2.2 运行拓扑
@@ -59,7 +59,7 @@
 
 ~~~text
 
-├─ api/   app.py、requirements.txt、pytest.ini、.env.example
+├─ api/   app.py、requirements{,-litellm,-dev}.txt、pytest.ini、.env.example
 │  └─ src/  l01_core(config,errors,ids,logging,timeutil) l02_infra(crypto,db,tokens)
 │           l03_domain(breaker,combos,failover,naming,rewrite,schedule,urls) l04_repo(orm,repo,search)
 │           l05_service(auth,chat,channels,routing,rewrite,probe,aggregates,retention,timeseries,llm/gateway.py)
@@ -77,6 +77,8 @@
 
 ~~~powershell
 cd api; python -m venv .venv; .\.venv\Scripts\pip.exe install -r requirements.txt; Copy-Item .env.example .env
+# 生产只需 requirements.txt；测试环境另装 requirements-dev.txt（pytest 工具链 + litellm 可选臂）；
+# 仅 UPSTREAM_TRANSPORT=litellm 的实例才需要 requirements-litellm.txt（见 §5.2 守卫）。
 $env:PYTHONPATH = "$PWD/src"; .\.venv\Scripts\python.exe -m uvicorn l07_bootstrap.app_factory:create_app --factory --reload --port 3681
 cd web; npm ci; npm run dev
 ~~~
@@ -253,7 +255,8 @@ npm run build; npm run lint:ui
 | 显式 `UPSTREAM_TRANSPORT=litellm` 且连接地址可还原为 OpenAI `api_base` | LiteLLM SDK | `litellm.acompletion(...)`，`model="openai/<upstream_model>"`，`max_retries=0`；比 httpx 每请求多约 50ms CPU、吞吐低约 29%（§11.3），只在整实例需要 SDK 归一化时切过去 |
 | 连接地址以 `#` 结尾且不是 `/chat/completions` | 原生 httpx | LiteLLM 无法表达该精确端点 |
 
-- `UPSTREAM_TRANSPORT` 是**全局**配置（`config.py:27`）：全仓只有两个读取点——`l05_service/llm/gateway.py:778`（`startup()` 预热判定）与 `:815`（`_use_litellm()`），来源都是全局 settings；`orm.py` 没有 transport 字段，也没有任何渠道级覆盖路径。想「只让某个渠道走 SDK」做不到，只能整实例切。
+- `UPSTREAM_TRANSPORT` 是**全局**配置（`config.py:27`）：全仓只有两个读取点——`l05_service/llm/gateway.py:959`（`startup()` 预热判定）与 `:1008`（`_use_litellm()`），来源都是全局 settings；`orm.py` 没有 transport 字段，也没有任何渠道级覆盖路径。想「只让某个渠道走 SDK」做不到，只能整实例切。
+- **依赖随功能走（2026-11-18）**：litellm 不进默认生产依赖，单独放 `api/requirements-litellm.txt`——它拖进 openai、tokenizers（HuggingFace）、aiohttp、jiter 等约 20 个锁定条目，默认 httpx 部署一个都用不到；pytest 三件套同理移入 `requirements-dev.txt`（生产 venv 不装测试工具）。设了 `UPSTREAM_TRANSPORT=litellm` 而未安装时，`startup()` 在分配任何客户端前直接失败并提示安装（l02_infra/dialect.py 的 asyncpg 驱动同款守卫）；`start-prd.sh` 检测到该配置会自动补装。
 - `_litellm_api_base()` 从 `build_chat_url()` 剥掉末尾 `/chat/completions` 得到 SDK 的 `api_base`，保证两条路径实际 URL 一致；改写先在我们的统一 OpenAI 请求体上完成，再拆成 `messages / model / stream / stream_options / extra_body`。
 - 渠道自定义头走 `extra_headers`，凭据头由 `_litellm_auth()` 生成；OpenAI SDK 会无条件发自己的 `Authorization`，非 Bearer 渠道用占位 key + 真实凭据走 `extra_headers`。
 - 响应：非流式把 `ModelResponse` 转 dict 后做体/头改写；流式逐 chunk 转 dict 透传、体改写跳过并记 `rewrite_skipped=stream`。`_HeaderCaseTransport` 恢复常见头大小写、剥离内部 usage trace header、按请求 observer 包装响应流。

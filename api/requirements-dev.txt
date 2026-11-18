@@ -1,0 +1,12 @@
+# Development / test environment: production runtime + the optional LiteLLM
+# arm (several tests exercise both transport arms) + test tooling.
+#   pip install -r requirements-dev.txt
+-r requirements.txt
+-r requirements-litellm.txt
+pytest==9.2.0
+pytest-asyncio==1.4.1
+pytest-xdist==3.8.0
+# scripts/run_tests_parallel.py (process-tree cleanup) and
+# scripts/upstream_baseline.py (CPU sampling) degrade gracefully without it;
+# installing it keeps their orphan detection and sampling accurate.
+psutil

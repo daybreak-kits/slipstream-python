@@ -1,0 +1,10 @@
+# Optional transport arm — install ONLY when running UPSTREAM_TRANSPORT=litellm
+# (ssot §5.2 / ADR-034: whole-instance SDK normalization; the default httpx
+# transport needs nothing from this file). If the setting is litellm without
+# this package installed, the startup guard in l05_service/llm/gateway.py
+# refuses to boot with an actionable message.
+#
+# Kept out of requirements.txt on purpose: litellm drags in openai,
+# tokenizers (HuggingFace), aiohttp and jiter as transitive dependencies —
+# roughly twenty lock entries that a default httpx-only deployment never uses.
+litellm==1.108.4

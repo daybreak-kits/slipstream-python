@@ -87,6 +87,8 @@ docs/        规范、ADR、性能报告（入口 docs/INDEX.md）
 
 ## 测试
 
+测试依赖单独安装（生产不装 pytest）：`cd api && pip install -r requirements-dev.txt`。
+
 ```bash
 # 后端（xdist 并行；Windows 用 .venv/Scripts/python.exe）
 cd api && PYTHONPATH=src ../.venv/bin/python -m pytest -n 8 -q -p no:cacheprovider

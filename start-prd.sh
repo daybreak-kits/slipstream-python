@@ -25,6 +25,16 @@ if ! "$PY" -c "import fastapi, uvicorn" >/dev/null 2>&1; then
   "$PIP" install -r "$ROOT/api/requirements.txt"
 fi
 
+# The LiteLLM transport arm is an opt-in dependency (requirements-litellm.txt):
+# only installed when this deployment actually sets UPSTREAM_TRANSPORT=litellm.
+# Without the package the gateway's startup guard refuses to boot with a hint
+# pointing at this file.
+if grep -qsE '^[[:space:]]*UPSTREAM_TRANSPORT[[:space:]]*=[[:space:]]*litellm' "$ENV_FILE" \
+  && ! "$PY" -c "import litellm" >/dev/null 2>&1; then
+  echo "==> UPSTREAM_TRANSPORT=litellm: installing api/requirements-litellm.txt"
+  "$PIP" install -r "$ROOT/api/requirements-litellm.txt"
+fi
+
 # 配置不由脚本生成：生产配置里有密钥，模板不该被悄悄复制成"可用"的生产配置。
 if [ ! -f "$ENV_FILE" ]; then
   cat >&2 <<'EOF'

@@ -1,3 +1,10 @@
+# Production runtime dependencies. Test tooling lives in requirements-dev.txt;
+# the optional LiteLLM transport arm lives in requirements-litellm.txt (only
+# needed when UPSTREAM_TRANSPORT=litellm).
+#
+# requirements.lock is pip-compiled from this file for the Linux deployment
+# target (uvloop in, colorama out). Windows development installs the .txt
+# files directly and never uses the lock.
 fastapi==0.162.2
 uvicorn[standard]==0.54.0
 sqlalchemy[asyncio]==2.1.8
@@ -11,18 +18,15 @@ orjson==3.13.0
 PyJWT==2.15.1
 cryptography==50.0.2
 python-multipart==0.0.33
+# Precise token counts for the billing fallback heuristic (o200k_base, capped
+# at _TIKTOKEN_MAX_CHARS); longer text degrades to the script-based estimate.
 tiktoken==0.14.0
 # Windows ships no system tz database, so zoneinfo raises ZoneInfoNotFoundError
 # for any IANA name (the dashboard's DEFAULT_TIMEZONE=Asia/Shanghai is enough to
 # 500 every /api/dashboard/* request). Linux/macOS read /usr/share/zoneinfo and
 # ignore this package; installing it everywhere keeps the dependency explicit.
 tzdata==2026.6
-pytest==9.2.0
-pytest-asyncio==1.4.1
-pytest-xdist==3.8.0
-litellm==1.108.4
-# PostgreSQL driver for DATABASE_URL=postgresql+asyncpg://...
-# NOT installed in this workspace (no network / no pip): the PostgreSQL code
-# path is therefore unverified against a real server here. Install it in the
-# deployment environment: pip install asyncpg==0.30.0
+# PostgreSQL driver for DATABASE_URL=postgresql+asyncpg://...; SQLite (the
+# default) never imports it. The dialect layer refuses to boot the PostgreSQL
+# path without the driver installed (l02_infra.dialect) with an install hint.
 asyncpg==0.30.0

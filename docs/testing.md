@@ -4,6 +4,11 @@ All API tests live in `api/tests` and run against the real application
 factory (`l07_bootstrap.app_factory.create_app`) with a throwaway SQLite
 database per test. No network access and no external service is required.
 
+Test dependencies are split from production: install the test environment
+with `pip install -r requirements-dev.txt` (production runtime + pytest
+tooling + the optional LiteLLM arm that several tests exercise). Production
+installs only `requirements.txt` and never pulls pytest.
+
 ## Running the suite
 
 ```bash
@@ -38,7 +43,7 @@ idle.
 
 Two ways to parallelise, both shipped:
 
-- **`pytest-xdist`** (in `requirements.txt`) — `pytest -n 8` spreads cases
+- **`pytest-xdist`** (in `requirements-dev.txt`) — `pytest -n 8` spreads cases
   across workers. This is the simple path and what `README.md` recommends.
 - **`api/scripts/run_tests_parallel.py`** (no plugin needed) — shards whole
   *files* across independent pytest subprocesses, so a per-file fixture or

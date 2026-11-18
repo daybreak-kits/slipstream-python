@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import re
 import sys
@@ -959,9 +960,17 @@ async def startup(settings_obj: Any | None = None) -> None:
     """Create the process-wide HTTP pools and hand one to LiteLLM."""
     global _raw_client, _litellm_client
     settings_obj = settings_obj or get_settings()
+    transport = str(_setting(settings_obj, "upstream_transport", "httpx")).lower()
+    if transport == "litellm" and importlib.util.find_spec("litellm") is None:
+        # The LiteLLM arm is an opt-in dependency (requirements-litellm.txt);
+        # refuse to boot before allocating any client, mirroring the asyncpg
+        # driver guard in l02_infra.dialect.
+        raise RuntimeError(
+            "UPSTREAM_TRANSPORT=litellm needs the litellm package, which is not "
+            "installed: pip install -r requirements-litellm.txt"
+        )
     if _raw_client is None:
         _raw_client = _new_client(settings_obj)
-    transport = str(_setting(settings_obj, "upstream_transport", "httpx")).lower()
     if transport == "litellm":
         import litellm
 

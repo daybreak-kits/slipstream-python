@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import time
 from contextlib import asynccontextmanager
@@ -319,6 +320,24 @@ def test_use_litellm_gate_states(monkeypatch):
         gateway, "get_settings", lambda: _settings(upstream_transport="httpx")
     )
     assert gateway._use_litellm(openai_channel) is False
+
+
+def test_startup_refuses_litellm_transport_without_package(monkeypatch):
+    """契约：UPSTREAM_TRANSPORT=litellm 而 litellm 未安装时，startup 在分配任何
+    客户端前直接失败并给安装提示（litellm 是可选依赖 requirements-litellm.txt；
+    守卫与 l02_infra/dialect.py 的 asyncpg 驱动检查同款，见 ssot §5.2）。"""
+    real_find_spec = importlib.util.find_spec
+
+    def _missing_litellm(name: str, *args: Any, **kwargs: Any):
+        if name == "litellm":
+            return None
+        return real_find_spec(name, *args, **kwargs)
+
+    monkeypatch.setattr(gateway.importlib.util, "find_spec", _missing_litellm)
+    raw_before = gateway._raw_client  # 守卫必须先于客户端分配触发
+    with pytest.raises(RuntimeError, match="requirements-litellm"):
+        asyncio.run(gateway.startup(_settings(upstream_transport="litellm")))
+    assert gateway._raw_client is raw_before
 
 
 # ---------------------------------------------------------------------------
