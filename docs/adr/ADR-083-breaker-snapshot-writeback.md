@@ -1,6 +1,6 @@
-# ADR-080 熔断状态的快照回写与测试环境隔离
+# ADR-083 熔断状态的快照回写与测试环境隔离
 
-> 编号说明：原拟 ADR-078，与另一条在途决策（stream-rewrite-byte-blocks）撞号，2026-11-18 让位改为 ADR-080；正文内容不变。
+> 编号说明：原拟 ADR-078，与另一条在途决策（stream-rewrite-byte-blocks）撞号，让位改为 ADR-080；2026-11-18 合并时与 byte-domain 快路径（ADR-080-request-byte-domain-fast-path）再撞，本篇外部零引用、让位改 ADR-083；正文内容不变。
 
 - 状态：accepted（2026-11-18）
 - 关联：ADR-051（熔断按真实结局记账）、ADR-057（`USAGE_PIPELINE` 总开关）、ADR-060（catalog 版本轮询）、ssot §5.4 / §8.4、`docs/testing.md`
