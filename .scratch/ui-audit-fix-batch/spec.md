@@ -39,7 +39,7 @@ Branch: `fix/b82e-breaker-and-cleanup`（当前分支，两批提交，每批过
 14. As a 长时间使用管理台的运营者，每页大标题出自同一个 PageHeader 基元（标题/说明/动作区），所以页头永远对齐、间距一致。
 15. As a 运营者，加载屏显示正式产品 logo 与加载指示，所以硬刷新时不会看到来历不明的字母和无限闪烁。
 16. As a 运营者，数据看板标题直接是「数据看板 + 时间范围」，所以每页进入看到的是上下文而不是寒暄。
-17. As a 运营者，登录页没有装饰性光斑，所以视觉焦点落在产品示例卡上。
+17. As a 运营者，登录页视觉层次 = 网格 + 光斑 + 追踪卡——blur 光斑保留（2026-11-18 用户裁定推翻本条原「删除装饰性光斑」：复拍后用户要求恢复并保留两处光斑，audit.md B7），所以示例卡与追踪卡仍是焦点所在。
 18. As a 移动端/窄屏使用者，试验参数面板按控件性质分行且窄屏退化为 1–2 列，所以不会看到挤压错位。
 19. As a 调试模型的运营者，参数面板里中文业务名为主、参数名为等宽副注，所以既看得懂又能对上 API 字段。
 20. As a 调试模型的运营者，参数面板的提示走统一的 tooltip 基元，所以悬停行为全站一致。
@@ -95,3 +95,15 @@ Branch: `fix/b82e-breaker-and-cleanup`（当前分支，两批提交，每批过
 - 规范文本已先于代码落地：`docs/ui.md`（§2.1 治理 / §2.2 动效 / §2.3 确认弹窗 / §2.4 数据口径 / §2.5 门禁探针）、ADR-081、ADR-082、GLOSSARY「未配置单价」。代码修复即"向规范对齐"，不再有口径争议空间。
 - 正确示范锚点（修复向其对齐，不发明）：日志详情抽屉与试验页的「未配置单价」、models 页确认框问句标题、改写规则行内校验、设置卡具名保存按钮、密钥一次性揭示弹窗。
 - 两批各以独立提交落库；第二批完成时 lint 探针 0 命中、全站字距三值、死基元清零。
+
+## 复审收尾（2026-11-18）
+
+两轴复审（规范轴 + 规格轴）对 landed 实况盘点后，以下超出本 spec 字面的改动登记为**有意追加**（均已落库，有用户裁定或规范背书）：
+
+- ① 桑基图移除 FLOW_MAX_WIDTH 宽度上限（`web/src/lib/dashboard.ts:388`、`web/src/components/dashboard/flow-sankey.tsx:86`，commit cdb4674「full-width flow canvas」）——超出 Out-of-Scope「桑基图结构性重构」的字面，实际只动宽度上限一处。
+- ② models 封禁弹窗压平为三个并列单选 + 内嵌排期编辑器，已封禁行隐藏冗余恢复入口（`web/src/pages/models.tsx`、`web/src/components/catalog/availability-control.tsx`）——有 ui.md §2.4「停止/恢复方式一组单选压平」「同一意图只留一个入口」用户裁定背书。
+- ③ keys/channels 删除失败改 toast（`web/src/pages/keys.tsx:160`、`web/src/pages/channels.tsx:140`）。
+- ④ 登录页错误槽重设计、用户名 placeholder 一并移除——超出票 10 字面，对应 ui.md §2.3「错误出现不推移既有控件」与 §2.4「占位符不得伪装成已填内容」。
+- ⑤ 「计划窗口→冷却窗口」全站改名（GLOSSARY/ssot/ui.md 已同步，机制名 `schedule_json` 不变）。
+
+复审收尾修复（closeout）：登录 gap-3.5→gap-3；logs tracking 0.12em→0.08em；combo-editor 危险钮文字化；channels 行内钮文字化；logs 去重（RouteTriggerButton/requestCostLabel/LatencyValue 复用）；文档四处同步（ui.md §2.1/§2.2/§3、ssot.md §9.3、票 08/10 与本文件）。

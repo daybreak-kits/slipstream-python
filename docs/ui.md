@@ -27,7 +27,7 @@
 - B 类保留原公开入口（导出名、`size`/`variant`、slot）；vendored 里的 `dark:` 属上游写法，不改源码，lint 在 `src/components/ui/**` 内只计 warning。
 - **组件来源治理（2026-11-18 增）**：
   - Radix 原语只允许在 `components/ui/` 内 import（现全仓合规，新增时保持）；
-  - 禁止在 `ui/` 之外手写基元语义——`role="switch"/"tablist"/"tab"/"dialog"/"alertdialog"/"listbox"` 一旦出现在页面或 domain 组件里，即为第二套实现（现行违例：`combos/combo-editor-dialog.tsx:947` 手写 tablist、`logs.tsx` RoutePopover 手写 dialog 浮层——改写规则行的删除按钮反而规范；手写 switch 已于 2026-11-18 清零，`channels/enabled-toggle.tsx` 改为组合 `ui/switch`）；
+  - 禁止在 `ui/` 之外手写基元语义——`role="switch"/"tablist"/"tab"/"dialog"/"alertdialog"/"listbox"` 一旦出现在页面或 domain 组件里，即为第二套实现（tablist/dialog 浮层两处已于 2026-11-18 收敛（票 08）：`combos/combo-editor-dialog.tsx` 候选 tab 换 `ui/tabs`、`logs.tsx` RoutePopover 换 `ui/popover`；手写 switch 同日清零，`channels/enabled-toggle.tsx` 改为组合 `ui/switch`）；
   - C 类自建件（combobox/time-range-picker/icon-badge/metric-pills）必须登记在本表；新自建件先证明 registry 与现有 38 件都覆盖不了，再入库；
   - **0 采用基元是债不是资产**：每个死基元二选一——三个月内接线，或从清单移除；禁止"先 copy 备着"。2026-11-18 处置（ADR-081 决策 2/4）：`switch` 接线（`channels/enabled-toggle.tsx` 改为组合 `ui/switch`，全站启停唯一实现）；`avatar/breadcrumb/form/progress/scroll-area` 五件移除，登记进 §3 已删除类（需要时一次 shadcn copy-in 即回）。
 
@@ -35,7 +35,7 @@
 
 - **颜色**：只写语义类名；出现 hex、`text-[Npx]`、`h-[Npx]`、`rounded-[Npx]` 即不合规；组件内禁 `dark:` 重复声明；`@theme inline` 必须带 `inline`（否则 `var()` 在定义处求值，深色无覆盖）。
 - **命名语义**（ADR-066 决策 1）：`--color-muted` 是**弱表面**（`surface-2`），文字层用 `text-muted-foreground`；圆角两套标尺同值（badge 6 / control 8 / card 12 ≡ sm/md/lg，xl 16 只给浮层内嵌容器）。
-- **字号**：11/16 `text-2xs` · 12/16 `text-xs` · 13/20 `text-2sm`（正文默认）· 14/20 `text-sm`；例外 19/26 `text-metric`（仅指标大数字）、22/28 `text-h1`（仅 PageHeader），**只在基元内部**，页面不写 19/22。字重仅 400/500/600；字距仅 normal / -0.01em（标题）/ 0.08em（全大写小标签，中文禁 `uppercase`）。
+- **字号**：11/16 `text-2xs` · 12/16 `text-xs` · 13/20 `text-2sm`（正文默认）· 14/20 `text-sm`；例外 19/26 `text-metric`（仅指标大数字）、22/28 `text-h1`（仅 PageHeader 及登录页——登记例外，2026-11-18：登录页是全屏页，不走管理台 PageHeader 框架），**只在基元内部**，页面不写 19/22。字重仅 400/500/600；字距仅 normal / -0.01em（标题）/ 0.08em（全大写小标签，中文禁 `uppercase`）。
 - **控件高度**：32/36/40（Button lg 44 仅登录与空态主 CTA）；dense 28 只给工具条与密集表格；同行相邻必须同高；图标按钮 32/36/40 正方形；图标 14/16/18，行内 12/14。
 - **圆角阴影**：badge 6 / control 8 / card 12 / full；阴影只有 `shadow-card`、`shadow-pop`，禁自写 `box-shadow`，hover 不加阴影只改底色/边框。
 - **间距**：4px 基数，允许 2/4/6/8/10/12/16/20/24/32，禁 5/7/9/11/13/14/15/18/28；页面 padding 移动 16 / 桌面 24，section 24，卡片 20 或 24，表单 gap 16、label 6、帮助 6，按钮组 8，表格 px 12/20 py 8/12、行高 ≥44；横向布局必须定窄屏退化（wrap / 降列 / `overflow-x-auto`），禁 min-w 撑屏。
@@ -82,8 +82,8 @@
 | 类 | 件数 | 成员 | 语义 / 状态 |
 |---|---:|---|---|
 | A vendored（v3 冻结） | 22 | alert-dialog、calendar、checkbox、collapsible、command、dialog、dropdown-menu、field、input-group、popover、radio-group、select、separator、sheet、sonner、switch、table、tabs、textarea、toggle、toggle-group、tooltip | 只改 token/尺寸类；tooltip 页面侧仍 0 调用（组件就位、调用点未迁）；switch 已接线（2026-11-18，启停唯一实现） |
-| B 并入 shadcn | 11 | button（default/secondary/outline/ghost/**danger**/link × size default/md/sm/lg/icon）、input、badge（6 tone）、card、alert（default/**destructive**/warning/success）、label、pagination（`PAGE_SIZE_OPTIONS`）、skeleton、spinner、empty、confirm-dialog | 保留原 public API；skeleton/spinner/empty 迁移前仍是「待接线」 |
-| C 自建保留 | 4 | combobox（Popover + Command）、time-range-picker（Calendar + 小时 wrapper）、icon-badge、metric-pills | 无 registry 对应件，永久保留；combobox 空值改用 `SELECT_ALL_VALUE` |
+| B 并入 shadcn | 12 | button（default/secondary/outline/ghost/**danger**/link × size default/md/sm/lg/icon）、input、badge（6 tone）、card、alert（default/**destructive**/warning/success）、label、pagination（`PAGE_SIZE_OPTIONS`）、skeleton、spinner、empty、confirm-dialog、page-header | 保留原 public API；skeleton/spinner/empty 迁移前仍是「待接线」；page-header 页头基元（2026-11-18 并入）：`title` 渲染为全页唯一 `h1`（`text-h1` + −0.01em 字阶全站仅此处），`description`/`actions`/`badge` 三插槽，flex wrap 布局不自带 margin（`className` 追加） |
+| C 自建保留 | 4 | combobox（Popover + Command）、time-range-picker（Calendar + 小时 wrapper）、icon-badge、metric-pills | 无 registry 对应件，永久保留；combobox 空值改用 `SELECT_ALL_VALUE`；排期时区选择器（`components/models/schedule-rules.tsx`）按 registry 条①缺口填充模式保留本地 Popover+Command 并登记豁免——`ui/combobox` 未透出 `id`/`aria-invalid`/`aria-describedby` 表单语义（2026-11-18） |
 | 已删除 | 9 | `ui/modal.tsx`(77)、`ui/search-select.tsx`(243)、`ui/toast.tsx`(179)、`lib/use-body-scroll-lock.ts`、`ui/avatar.tsx`(50)、`ui/breadcrumb.tsx`(115)、`ui/form.tsx`(178)、`ui/progress.tsx`(28)、`ui/scroll-area.tsx`(48) | toast 统一 sonner；五基元 0 调用移除（ADR-081 决策 4，2026-11-18），将来需要时一次 copy-in 即回 |
 
 偏差：button 用 `danger`、alert 用 `destructive`（不统一）；`ui/tabs` 已就位但页面 3 处仍是自写分段控件；`ui/empty.tsx` 只导出 `Empty`。**0 采用（2026-11-18 实测）**：原六件死基元已处置——switch 接线为启停唯一实现（`channels/enabled-toggle.tsx`），avatar、breadcrumb、form、progress、scroll-area 五件移入上表已删除类（sonner 经 `App.tsx` 挂载、skeleton 仅测试引用）；手写违例与处置规则见 §2.1 组件来源治理。
