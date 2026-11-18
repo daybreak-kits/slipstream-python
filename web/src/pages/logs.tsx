@@ -23,7 +23,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 
 import { type IconTone } from "@/components/ui/icon-badge";
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { LogDetailDrawer } from "@/components/logs/log-detail-drawer";
@@ -33,7 +33,9 @@ import { Card } from "@/components/ui/card";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { MetricStrip, type MetricPillItem } from "@/components/ui/metric-pills";
+import { PageHeader } from "@/components/ui/page-header";
 import { Pagination } from "@/components/ui/pagination";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -95,9 +97,15 @@ import {
   type LogView,
   type RequestLog,
 } from "@/lib/logs";
-import { formatCompact, formatCostOrUnconfigured, formatCount, formatPercent } from "@/lib/format";
+import {
+  formatCompact,
+  formatCount,
+  formatPercent,
+  formatRequestCost,
+} from "@/lib/format";
 import {
   formatLatency,
+  isLatencyMissing,
   latencyBarClass,
   latencyTextClass,
   latencyDescription,
@@ -313,52 +321,71 @@ function AttemptItem({ attempt, index }: { attempt: LogAttempt; index: number })
   );
 }
 
-function RoutePopover({ log, onClose }: { log: RequestLog; onClose: () => void }) {
+/**
+ * 路由链浮层：Radix Popover 接管开关/定位/焦点（Escape 与外点关闭、关闭后焦点归还），
+ * 触发按钮由调用方以 `trigger` 传入（PopoverTrigger asChild）。
+ */
+function RoutePopover({
+  log,
+  open,
+  onOpenChange,
+  trigger,
+}: {
+  log: RequestLog;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  trigger: ReactNode;
+}) {
   const attempts = [...log.attempts].sort((a, b) => (a.round ?? 1) - (b.round ?? 1));
   return (
-    <div
-      data-testid="routing-path"
-      role="dialog"
-      aria-label="路由链"
-      className="absolute left-0 top-[calc(100%+6px)] z-30 w-90 max-w-[80vw] animate-fade-in rounded-card border border-border bg-surface p-3 shadow-pop"
-      onClick={(event) => event.stopPropagation()}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-2xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">路由链</p>
-          <p className="mt-1 truncate text-xs font-medium text-title" title={log.requested_model}>
-            {log.requested_model || "—"}
-            {log.response_model ? (
-              <span className="font-normal text-muted-foreground"> → {log.response_model}</span>
-            ) : null}
-          </p>
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent
+        data-testid="routing-path"
+        data-route-open="true"
+        aria-label="路由链"
+        align="end"
+        sideOffset={6}
+        className="w-90 max-w-[80vw] rounded-card border-border bg-surface p-3 shadow-pop"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-2xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">路由链</p>
+            <p className="mt-1 truncate text-xs font-medium text-title" title={log.requested_model}>
+              {log.requested_model || "—"}
+              {log.response_model ? (
+                <span className="font-normal text-muted-foreground"> → {log.response_model}</span>
+              ) : null}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-2 hover:text-title"
+            aria-label="关闭路由链"
+          >
+            <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-2 hover:text-title"
-          aria-label="关闭路由链"
-        >
-          <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
-        </button>
-      </div>
 
-      {attempts.length === 0 ? (
-        <p className="mt-3 rounded-control bg-surface-2 px-3 py-2 text-xs text-muted-foreground">
-          单次直接调用 · {log.channel_name || "—"} / {log.upstream_model || "—"}
-        </p>
-      ) : (
-        <ol className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
-          {attempts.map((attempt, index) => (
-            <AttemptItem
-              key={`${attempt.channel_model_id ?? "attempt"}-${index}`}
-              attempt={attempt}
-              index={index}
-            />
-          ))}
-        </ol>
-      )}
-    </div>
+        {attempts.length === 0 ? (
+          <p className="mt-3 rounded-control bg-surface-2 px-3 py-2 text-xs text-muted-foreground">
+            单次直接调用 · {log.channel_name || "—"} / {log.upstream_model || "—"}
+          </p>
+        ) : (
+          <ol className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+            {attempts.map((attempt, index) => (
+              <AttemptItem
+                key={`${attempt.channel_model_id ?? "attempt"}-${index}`}
+                attempt={attempt}
+                index={index}
+              />
+            ))}
+          </ol>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -367,34 +394,39 @@ function LatencyValue({
   value,
   kind,
   emptyHint,
+  failed = false,
 }: {
   label: string;
   value: number | null | undefined;
   kind: LatencyKind;
   emptyHint?: string;
+  failed?: boolean;
 }) {
-  const showEmptyHint = value == null && Boolean(emptyHint);
-  // 总耗时 0 表示上游没有回报，不能显示成 0.00s。
-  const missingTotal = kind === "total" && (value === null || value === undefined || value === 0);
+  // 失败请求没有「仅推理」可言：输出前就失败了，首字/首答的 0/null 都是「从未发生」。
+  const hint = failed ? undefined : emptyHint;
+  const showEmptyHint = value == null && Boolean(hint);
+  // 总耗时 0 表示上游没有回报；失败请求的首字/首答 0 = 从未发生——
+  // 都按无数据处理，不渲染 0.00s（ADR-082 同族口径）。
+  const missing = isLatencyMissing(value, kind, failed);
+  // 无数据的可访问名用全称（总耗时），行内短标签「总」只用于视觉。
+  const missingLabel = kind === "total" ? "总耗时" : label;
   return (
     <span
       className="flex items-baseline gap-1.5 whitespace-nowrap"
       title={
         showEmptyHint
-          ? emptyHint
-          : missingTotal
-            ? "总耗时无数据"
-            : value == null
-              ? `${label}无数据`
-              : `${label} ${formatDuration(value)}`
+          ? hint
+          : missing
+            ? `${missingLabel}无数据`
+            : `${label} ${formatDuration(value)}`
       }
-      aria-label={showEmptyHint ? emptyHint : missingTotal ? "总耗时无数据" : latencyDescription(value, kind)}
+      aria-label={showEmptyHint ? hint : missing ? `${missingLabel}无数据` : latencyDescription(value, kind)}
     >
       <span className="w-7 shrink-0 text-2xs text-muted-foreground">{label}</span>
       {showEmptyHint ? (
         <span className="text-2xs text-muted-foreground">仅推理</span>
-      ) : missingTotal ? (
-        <span className="text-2xs text-muted-foreground" title="总耗时无数据">—</span>
+      ) : missing ? (
+        <span className="text-2xs text-muted-foreground" title={`${missingLabel}无数据`}>—</span>
       ) : (
         <span className={cn("tabular-nums text-xs font-medium", latencyTextClass(latencyTone(value, kind)))}>
           {formatLatency(value)}
@@ -407,8 +439,9 @@ function LatencyValue({
 function LatencyCell({ log }: { log: RequestLog }) {
   // newapi-style full-height bar: each metric contributes an equal segment,
   // so one slow phase is visible without turning the whole column red.
+  const failed = isErrorLog(log);
   const toneFor = (value: number | null | undefined, kind: LatencyKind) =>
-    isErrorLog(log) ? "bad" : latencyTone(value, kind);
+    failed ? "bad" : latencyTone(value, kind);
   const tones = [
     toneFor(log.ttft_ms, "ttft"),
     toneFor(log.ttfa_ms, "ttfa"),
@@ -425,12 +458,13 @@ function LatencyCell({ log }: { log: RequestLog }) {
         ))}
       </span>
       <div className="flex min-w-0 flex-col justify-center gap-0.5 text-2xs leading-[1.15]">
-        <LatencyValue label="首字" value={log.ttft_ms} kind="ttft" />
+        <LatencyValue label="首字" value={log.ttft_ms} kind="ttft" failed={failed} />
         <LatencyValue
           label="首答"
           value={log.ttfa_ms}
           kind="ttfa"
           emptyHint={ttfaMissing(log) ? TTFA_NO_CONTENT_LABEL : undefined}
+          failed={failed}
         />
         <LatencyValue label="总" value={log.total_ms} kind="total" />
       </div>
@@ -538,12 +572,13 @@ function InlineLogSummary({ log, hideSensitive }: { log: RequestLog; hideSensiti
         <div className="min-w-0">
           <dt className="text-2xs text-muted-foreground">首字 / 首答 / 总耗时</dt>
           <dd className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs">
-            <LatencyValue label="首字" value={log.ttft_ms} kind="ttft" />
+            <LatencyValue label="首字" value={log.ttft_ms} kind="ttft" failed={isErrorLog(log)} />
             <LatencyValue
               label="首答"
               value={log.ttfa_ms}
               kind="ttfa"
               emptyHint={ttfaMissing(log) ? TTFA_NO_CONTENT_LABEL : undefined}
+              failed={isErrorLog(log)}
             />
             <LatencyValue label="总" value={log.total_ms} kind="total" />
           </dd>
@@ -555,9 +590,10 @@ function InlineLogSummary({ log, hideSensitive }: { log: RequestLog; hideSensiti
             title={hideSensitive ? "敏感信息已隐藏" : undefined}
           >
             {maskValue(
-              formatCostOrUnconfigured(
+              formatRequestCost(
                 log.cost_usd,
                 log.prompt_tokens + log.completion_tokens + log.cached_tokens,
+                isErrorLog(log),
               ),
               hideSensitive,
             )}
@@ -706,51 +742,55 @@ function RequestLogRow({
           className="relative px-3 py-2"
           data-route-open={pathOpen ? "true" : undefined}
         >
-          <button
-            type="button"
-            aria-label={pathOpen ? "收起路由链" : "展开路由链"}
-            aria-expanded={pathOpen}
-            className="block w-full text-left"
-            onClick={(event) => {
-              event.stopPropagation();
-              onTogglePath();
+          <RoutePopover
+            log={log}
+            open={pathOpen}
+            onOpenChange={(next) => {
+              if (next !== pathOpen) onTogglePath();
             }}
-          >
-            <div
-              className="flex min-w-0 items-center gap-1 text-xs font-medium text-title hover:text-primary"
-              title={log.requested_model}
-            >
-              <span className="truncate">{log.requested_model || "—"}</span>
-              {responseMismatch ? (
-                <AlertTriangle
-                  className="h-3 w-3 shrink-0 text-warning-text"
-                  strokeWidth={1.75}
-                  aria-label={`上游返回模型 ${log.response_model} 与配置不一致`}
-                />
-              ) : null}
-            </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
-              <span className="truncate">
-                {log.channel_name || "—"} / {log.upstream_model || "—"}
-              </span>
-              <span
-                className="shrink-0 rounded-badge border border-border px-1 text-2xs text-muted-foreground"
-                title={`来源：${sourceLabel(log.source)}`}
+            trigger={
+              <button
+                type="button"
+                aria-label={pathOpen ? "收起路由链" : "展开路由链"}
+                className="block w-full text-left"
+                onClick={(event) => event.stopPropagation()}
               >
-                {sourceLabel(log.source)}
-              </span>
-              {hasFailover ? (
-                <span
-                  className="inline-flex shrink-0 items-center gap-0.5 text-warning-text"
-                  title="发生转移"
+                <div
+                  className="flex min-w-0 items-center gap-1 text-xs font-medium text-title hover:text-primary"
+                  title={log.requested_model}
                 >
-                  <GitFork className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
-                  {attempts.length} 次尝试
-                </span>
-              ) : null}
-            </div>
-          </button>
-          {pathOpen ? <RoutePopover log={log} onClose={onTogglePath} /> : null}
+                  <span className="truncate">{log.requested_model || "—"}</span>
+                  {responseMismatch ? (
+                    <AlertTriangle
+                      className="h-3 w-3 shrink-0 text-warning-text"
+                      strokeWidth={1.75}
+                      aria-label={`上游返回模型 ${log.response_model} 与配置不一致`}
+                    />
+                  ) : null}
+                </div>
+                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
+                  <span className="truncate">
+                    {log.channel_name || "—"} / {log.upstream_model || "—"}
+                  </span>
+                  <span
+                    className="shrink-0 rounded-badge border border-border px-1 text-2xs text-muted-foreground"
+                    title={`来源：${sourceLabel(log.source)}`}
+                  >
+                    {sourceLabel(log.source)}
+                  </span>
+                  {hasFailover ? (
+                    <span
+                      className="inline-flex shrink-0 items-center gap-0.5 text-warning-text"
+                      title="发生转移"
+                    >
+                      <GitFork className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
+                      {attempts.length} 次尝试
+                    </span>
+                  ) : null}
+                </div>
+              </button>
+            }
+          />
         </TableCell>
         <TableCell
           className="hidden truncate px-3 py-2 text-xs text-title xl:table-cell"
@@ -783,9 +823,10 @@ function RequestLogRow({
           title={hideSensitive ? "敏感信息已隐藏" : undefined}
         >
           {maskValue(
-            formatCostOrUnconfigured(
+            formatRequestCost(
               log.cost_usd,
               log.prompt_tokens + log.completion_tokens + log.cached_tokens,
+              isErrorLog(log),
             ),
             hideSensitive,
           )}
@@ -908,10 +949,12 @@ function AggregateLogRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  // 聚合组里有失败请求且费用为 0 时，同样不渲染 $0.00（失败行口径）。
   const cost = maskValue(
-    formatCostOrUnconfigured(
+    formatRequestCost(
       group.cost_usd,
       group.prompt_tokens + group.completion_tokens + group.cached_tokens,
+      isErrorGroup(group),
     ),
     hideSensitive,
   );
@@ -1436,14 +1479,10 @@ export function LogsPage() {
 
   return (
     <div className="animate-fade-up">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-h1 font-semibold tracking-[-0.02em] text-title">使用日志</h1>
-          <p className="mt-1.5 max-w-2xl text-2sm text-muted-foreground">
-                            按渠道、模型、状态与调用方筛选每一次请求；展开行查看首字、首答、总耗时、路由链与改写结果。
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="使用日志"
+        description="按渠道、模型、状态与调用方筛选每一次请求；展开行查看首字、首答、总耗时、路由链与改写结果。"
+      />
 
       <MetricStrip
         className="mt-6"
@@ -1915,51 +1954,53 @@ export function LogsPage() {
                             className="relative px-3 py-2"
                             data-route-open={pathOpen ? "true" : undefined}
                           >
-                            <button
-                              type="button"
-                              aria-label={pathOpen ? "收起路由链" : "展开路由链"}
-                              aria-expanded={pathOpen}
-                              className="block w-full text-left"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setPathOpenId(pathOpen ? null : log.id);
-                              }}
-                            >
-                              <div
-                                className="flex min-w-0 items-center gap-1 text-xs font-medium text-title hover:text-primary"
-                                title={log.requested_model}
-                              >
-                                <span className="truncate">{log.requested_model || "—"}</span>
-                                {responseMismatch ? (
-                                  <AlertTriangle
-                                    className="h-3 w-3 shrink-0 text-warning-text"
-                                    strokeWidth={1.75}
-                                    aria-label={`上游返回模型 ${log.response_model} 与配置不一致`}
-                                  />
-                                ) : null}
-                              </div>
-                              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
-                                <span className="truncate">
-                                  {log.channel_name || "—"} / {log.upstream_model || "—"}
-                                </span>
-                                <span
-                                  className="shrink-0 rounded-badge border border-border px-1 text-2xs text-muted-foreground"
-                                  title={`来源：${sourceLabel(log.source)}`}
+                            <RoutePopover
+                              log={log}
+                              open={pathOpen}
+                              onOpenChange={(next) => setPathOpenId(next ? log.id : null)}
+                              trigger={
+                                <button
+                                  type="button"
+                                  aria-label={pathOpen ? "收起路由链" : "展开路由链"}
+                                  className="block w-full text-left"
+                                  onClick={(event) => event.stopPropagation()}
                                 >
-                                  {sourceLabel(log.source)}
-                                </span>
-                                {hasFailover ? (
-                                  <span
-                                    className="inline-flex shrink-0 items-center gap-0.5 text-warning-text"
-                                    title="发生转移"
+                                  <div
+                                    className="flex min-w-0 items-center gap-1 text-xs font-medium text-title hover:text-primary"
+                                    title={log.requested_model}
                                   >
-                                    <GitFork className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
-                                    {attempts.length} 次尝试
-                                  </span>
-                                ) : null}
-                              </div>
-                            </button>
-                            {pathOpen ? <RoutePopover log={log} onClose={() => setPathOpenId(null)} /> : null}
+                                    <span className="truncate">{log.requested_model || "—"}</span>
+                                    {responseMismatch ? (
+                                      <AlertTriangle
+                                        className="h-3 w-3 shrink-0 text-warning-text"
+                                        strokeWidth={1.75}
+                                        aria-label={`上游返回模型 ${log.response_model} 与配置不一致`}
+                                      />
+                                    ) : null}
+                                  </div>
+                                  <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
+                                    <span className="truncate">
+                                      {log.channel_name || "—"} / {log.upstream_model || "—"}
+                                    </span>
+                                    <span
+                                      className="shrink-0 rounded-badge border border-border px-1 text-2xs text-muted-foreground"
+                                      title={`来源：${sourceLabel(log.source)}`}
+                                    >
+                                      {sourceLabel(log.source)}
+                                    </span>
+                                    {hasFailover ? (
+                                      <span
+                                        className="inline-flex shrink-0 items-center gap-0.5 text-warning-text"
+                                        title="发生转移"
+                                      >
+                                        <GitFork className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
+                                        {attempts.length} 次尝试
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </button>
+                              }
+                            />
                           </TableCell>
                           <TableCell
                             className="hidden truncate px-3 py-2 text-xs text-title xl:table-cell"
@@ -1992,9 +2033,10 @@ export function LogsPage() {
                             title={hideSensitive ? "敏感信息已隐藏" : undefined}
                           >
                             {maskValue(
-              formatCostOrUnconfigured(
+              formatRequestCost(
                 log.cost_usd,
                 log.prompt_tokens + log.completion_tokens + log.cached_tokens,
+                isErrorLog(log),
               ),
               hideSensitive,
             )}

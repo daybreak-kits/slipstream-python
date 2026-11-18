@@ -9,7 +9,7 @@
 |---|---|---|
 | 框架 | React 19.3.1 / Vite 7.3.8 / TS 5.9 | SPA 形态不动；换 antd 则 React 19 只能走 v6 |
 | 样式 | Tailwind 4.3.5（`@tailwindcss/vite`） | ADR-064 把 80 行 JS 配置迁进 CSS-first `@theme`；v4 原生 `@layer` 亦是 antd 解法前提 |
-| 控件层 | shadcn new-york **v3** copy-in：27 vendored + 11 并入 + 4 自建 = **42** | 不引运行时组件库、源码可改；Radix 自带键盘与 aria |
+| 控件层 | shadcn new-york **v3** copy-in：22 vendored + 12 并入 + 4 自建 = **38** | 不引运行时组件库、源码可改；Radix 自带键盘与 aria。2026-11-18：avatar/breadcrumb/form/progress/scroll-area 五件死基元移除（ADR-081）、新增 page-header 并入件 |
 | 原语 | `@radix-ui/react-*` 单包 | 禁聚合包 `radix-ui`；重拉出现 `from "cn"`/`from "radix-ui"` 即拒收 |
 | 表单 | react-hook-form 7.9 + zod 3.25 | shadcn form/field 接 Controller；antd Form 自带状态只能二选一 |
 | 通知 | sonner 2.0，单个 `<Toaster/>`（`App.tsx:94`） | 取代自建 toast，禁第二套 |
@@ -22,9 +22,14 @@
 
 ### 2.1 单一来源
 
-- 唯一控件来源 `web/src/components/ui/`；页面与 `components/<domain>/` 禁原生 `<select>`/`<table>`、`aria-haspopup`、`role="menu"`、手写弹层骨架。新增控件先查 42 件清单：shadcn 有就 copy-in + 换 token 类。
+- 唯一控件来源 `web/src/components/ui/`；页面与 `components/<domain>/` 禁原生 `<select>`/`<table>`、`aria-haspopup`、`role="menu"`、手写弹层骨架。新增控件先查 38 件清单：shadcn 有就 copy-in + 换 token 类。
 - **A 类 vendored 只改 token 类与尺寸类**，不动 DOM 结构、导出名、交互行为。唯一受控例外：受控打开（无 Trigger）时由基元归还焦点，实现在 `src/lib/dialog-opener-focus.tsx`，只挂 dialog/sheet/alert-dialog 的 Content。
 - B 类保留原公开入口（导出名、`size`/`variant`、slot）；vendored 里的 `dark:` 属上游写法，不改源码，lint 在 `src/components/ui/**` 内只计 warning。
+- **组件来源治理（2026-11-18 增）**：
+  - Radix 原语只允许在 `components/ui/` 内 import（现全仓合规，新增时保持）；
+  - 禁止在 `ui/` 之外手写基元语义——`role="switch"/"tablist"/"tab"/"dialog"/"alertdialog"/"listbox"` 一旦出现在页面或 domain 组件里，即为第二套实现（现行违例：`combos/combo-editor-dialog.tsx:947` 手写 tablist、`logs.tsx` RoutePopover 手写 dialog 浮层——改写规则行的删除按钮反而规范；手写 switch 已于 2026-11-18 清零，`channels/enabled-toggle.tsx` 改为组合 `ui/switch`）；
+  - C 类自建件（combobox/time-range-picker/icon-badge/metric-pills）必须登记在本表；新自建件先证明 registry 与现有 38 件都覆盖不了，再入库；
+  - **0 采用基元是债不是资产**：每个死基元二选一——三个月内接线，或从清单移除；禁止"先 copy 备着"。2026-11-18 处置（ADR-081 决策 2/4）：`switch` 接线（`channels/enabled-toggle.tsx` 改为组合 `ui/switch`，全站启停唯一实现）；`avatar/breadcrumb/form/progress/scroll-area` 五件移除，登记进 §3 已删除类（需要时一次 shadcn copy-in 即回）。
 
 ### 2.2 Token
 
@@ -35,7 +40,7 @@
 - **圆角阴影**：badge 6 / control 8 / card 12 / full；阴影只有 `shadow-card`、`shadow-pop`，禁自写 `box-shadow`，hover 不加阴影只改底色/边框。
 - **间距**：4px 基数，允许 2/4/6/8/10/12/16/20/24/32，禁 5/7/9/11/13/14/15/18/28；页面 padding 移动 16 / 桌面 24，section 24，卡片 20 或 24，表单 gap 16、label 6、帮助 6，按钮组 8，表格 px 12/20 py 8/12、行高 ≥44；横向布局必须定窄屏退化（wrap / 降列 / `overflow-x-auto`），禁 min-w 撑屏。
 - **z-index**：吸顶列 5 / sticky 10 / topbar 30 / popover 40 / modal 50 / toast 70；新增层级先改表（tooltip、搜索层待补 token）。
-- **动效**：颜色·边框·背景 150ms，进入/离开 200ms ease-out，上限 300ms；只 `fade-up`/`fade-in`；新增动画必须注册进 `@theme`（`--animate-*` 与 keyframes 同在 `@theme`，放 `@layer utilities` 不生效）；必须尊重 `prefers-reduced-motion`。
+- **动效**：颜色·边框·背景 150ms，进入/离开 200ms ease-out，上限 300ms；只 `fade-up`/`fade-in`；新增动画必须注册进 `@theme`（`--animate-*` 与 keyframes 同在 `@theme`，放 `@layer utilities` 不生效）；必须尊重 `prefers-reduced-motion`。**过渡必须具名**（`transition-colors`、`transition-[transform,opacity]`），应用层禁 `transition-all`（vendored 除外）；页面级入场 `animate-fade-up` 全站只此一种、≤200ms，含表单的首屏（登录页）不做入场延迟。
 
 ### 2.3 交互与无障碍
 
@@ -43,27 +48,45 @@
 - 键盘一等公民：验收含 Tab 顺序、Enter/Space、Escape、方向键、焦点陷阱、关闭后焦点归还。
 - 结构性容器必须 `role` + `aria-*` + 焦点管理：`role=dialog` 配陷阱与归还；`role=tablist` 配 roving tabindex，`aria-controls` 指向真实常驻的 `role=tabpanel`（未选中用 `hidden` 而非不渲染）；`title=` 不算 tooltip。
 - 四态互斥：loading 与 empty 不同屏；空态区分「无数据」与「无匹配」（后者给清除筛选 CTA）；同一事件不同时 toast + Alert；错误只落一处。
-- 危险操作只走 `ConfirmDialog`（标题问句、正文写不可逆后果、取消在左 danger 在右、文案是动作）；禁 `window.confirm`。
+- **错误出现不推移既有控件（2026-11-18 用户裁定，二次收敛）**：表单错误统一落**一个常驻预留槽**，位置固定在主动作按钮之前；槽位高度按最坏一行预留（多字段错误合并成单行「A、B」），报错出现/消失/修正全程按钮位置恒定。**不得在表单各处多点占位**——登录页曾试过顶部 + 两字段三处占位，被指「空旷旷的」。槽位高度有限时用单行文字（`FieldError`），不用带框 `Alert` 撑高。
+- 危险操作只走 `ConfirmDialog`（标题问句、正文写不可逆后果、取消在左 danger 在右、文案是动作）；禁 `window.confirm`。**确认弹窗全站唯一实现**：危险确认一律 `ui/confirm-dialog`，`AlertDialog` 只许用于非破坏性提示（如"渠道还没有密钥"）；标题必须是问句（「删除手动组合 X？」✓、「删除密钥」✗）；danger 按钮前景用 `--primary-on`，同一控件内不混用 `--danger` 与 `--danger-text`。
 - Radix Select 空值哨兵：`SELECT_ALL_VALUE="__all__"` / `SELECT_NONE_VALUE="__none__"`，唯一来源 `src/lib/select-sentinels.ts`；页面禁字面量与自起名；`value` 永远非空。`body_policy`（off/errors/all）是业务取值，不套用。
 - 格式化单一来源 `lib/format.ts`、`lib/time.tsx`；页面禁 `toFixed`/`toLocaleString` 包装；未配置单价显示「—」不渲染 `$0.00`（会被读成免费）；会纵向比较的数字用 `tabular-nums`；图表轴走 `formatTrendAxis`。
 - 文案：按钮「动词 + 对象」，禁「确定/提交」，加载中保持动词只加 spinner；错误 = 发生了什么 + 为什么 + 怎么办（走 `describeApiError`），禁「请求失败」与堆栈；空态标题说状态、说明说原因、CTA 说下一步。
 
-### 2.4 门禁
+### 2.4 数据口径、空态与表单语义（2026-11-18 增，源于全站 CRUD 实测）
 
-- `npm run lint:ui` = `node scripts/lint-ui.mjs --max-warnings 19`；基线 **0 error / 19 warning**（全是 vendored 例外：字号 10 + 盒尺寸 4 + `dark:` 5，走 relaxed 桶），应用层新增一条即失败；`filesScanned` 取 `--json` 当次输出。
+- **未配置/无数据的数值位一律显示「—」，原因放 hint**：价格（`未配置单价` 场景数值位也是「—」）、失败请求的首字/首答耗时、无上游的转发地址，同理。禁渲染 `$0.00` / `0.00s` / `0`——会被读成"免费/零耗时"（实证：模型管理价格列、渠道模型映射单价列、日志失败行费用列三处违例；日志详情抽屉与试验页是正确示范）。
+- **表单不预填哨兵值**：可留空字段保持留空 + 说明留空语义（「留空 = 按输入价」✓）；禁止把 `0` 预填进价格/阈值输入框冒充默认值。`0` 只在"真实默认就是 0"时出现（如最大输入 0 = 未声明，需配文案说明）。
+- **占位符不得伪装成已填内容（2026-11-18 用户裁定）**：placeholder 与真实输入同色同位，空字段会因此看起来像已填（实证：登录密码框 `••••••••` 被误读成已输入的密码，诱导直接点登录）；登录凭据类输入框一律不留 placeholder。格式示例类占位符须带「例如」前缀（如 `例如 high / medium`）才算提示、不算伪装。
+- **空容器不渲染**：没有内容的消息框、空状态条不得画出来（实证：连接状态卡空消息渲染成孤立灰条）。空态区分「无数据」与「无匹配」，后者给清除筛选 CTA。
+- **能力宣传 = 事实**：端点清单、功能列表与后端实现逐项对齐（实证：概览页宣传 `/v1/messages` 与 Gemini 端点，实测不可用）。未实现的条目删除或标「未开放」。
+- **AI 装饰图标禁令**：`Sparkles` 等 sparkle 系只许出现在有真实 AI 语义的标记位；空态与文案装饰一律不用（lucide `Wand2` 这类**区分真实状态**的功能图标豁免，需注释说明）。
+- **行内操作风格（2026-11-18 用户裁定，取代「图标方钮」旧规）**：行内动作统一 **文字按钮**（`ghost sm`，图标 + 文字），可访问名按行指名（`封禁 channel-a/A`）；同一表格内不得图标钮与文字钮混排——用户实测反馈「又有文字又只有图标的按钮」会误读。语义色对齐口径：**封禁/删除/重置等破坏性动作 `text-danger-text`，启用/恢复 `text-success-text`**（实证：密钥行此前全灰被用户指「语义按钮没颜色」）。tooltip 只作补充，不承担可访问名。
+- **同一意图只留一个入口**：一行内若两个按钮都能达成同一结果（实证：已封禁行的「启用」与「解除冷却」都能恢复路由），只保留主路径那个；辅助入口只在主入口覆盖不了时出现（如启用中的行需要只清排期不动启停）。
+- **停止/恢复方式一组单选压平**：同一弹窗内不得出现两层视觉相同的 radio（实证：封禁弹窗曾出现「冷却（定时）→ 按持续时间/按计划窗口」嵌套层，用户指「两个同级的不对」）；全部选项并列一组，标签自解释（封禁（永久）/ 定时冷却 / 冷却窗口）。界面用词统一「**冷却窗口**」（旧称「计划窗口」，机制名 `schedule_json` 不变，见 GLOSSARY）。
+- **客户端存储单源**：新增 localStorage 键必须进 `lib/storage.ts` 的 `StoredKey` 联合（单 JSON 对象 `system.storage`）；独立键（如 playground 历史）属技术债，迁移或修注释。
+- **平台键位如实标注**：快捷键展示按平台（Mac `⌘K` / Win·Linux `Ctrl+K`），或标注两者。
+- **深色图表对比度**：细线条元素（桑基丝带、虚线网格）在深色主题下须单独核对，不得沿用浅色透明度。
+
+
+### 2.5 门禁
+
+- `npm run lint:ui` = `node scripts/lint-ui.mjs --max-warnings 19`；基线 **0 error / 16 warning**（全是 vendored 例外：字号 7 + 盒尺寸 4 + `dark:` 5，走 relaxed 桶；上限 19 不变，余量 3），应用层新增 warning 直接计入并吃掉余量；`filesScanned` 取 `--json` 当次输出。
 - 十条清单第 1–5 条可 grep（select/table/`aria-haspopup`/任意值/hex 与 `dark:`）；第 3 条无 lint 规则，靠 `rg` 或 PowerShell + 人工。
-- `/dev/ui` 画廊仅开发环境注册、不进侧栏、生产构建不含入口；4 张主快照（1440×900、390×844 × 浅/深），关动画、固定数据，阈值 `maxDiffPixelRatio 0.002`；改基元必须重拍并人眼过一遍。视觉套件用 **3690** 且 `reuseExistingServer: false`：**3680 属网关**（服务生产 `dist`），复用会测到上次构建的产物。
+- **组件治理探针（2026-11-18 增；已进 `lint:ui`，warning 级不拦截——ADR-081 决策 5）**：三条规则 `no-handrolled-primitive`（ui/ 外手写 `role="switch|tablist|tab|alertdialog|listbox|combobox"`；`role="dialog"` 不计——ui/popover 等基元在 ui/ 外的合法组合不涉及它，历史正当 dialog 用法不在本批范围）、`no-radix-outside-ui`（ui/ 外 `from "@radix-ui/` import）、`no-transition-all`（应用层 `transition-all` 类名）。三条扫描时已排除 `components/ui/**` 与测试（`__tests__`、`*.test.*`），违例不享受 relaxed 豁免、直接计入全局 warning。修复批清零后全站期望 **0 命中**。快捷核查仍可用 rg（均期望 0 命中）：`rg 'role="(switch|tablist|tab|alertdialog|listbox|combobox)"' src -g '*.tsx' -g '!src/components/ui/**'`；`rg 'from "@radix-ui' src -g '!src/components/ui/**'`；`rg 'transition-all' src -g '!src/components/ui/**'`。
+- **视觉验收是人工**（Playwright 截图套件已于 2026-11-18 移除，基线从未入库且含渠道标识不宜公开）：`./start-prd.sh` 起网关后打开 UI 逐页看；`/dev/ui` 基元画廊在**内部开发仓**，不随生产仓同步（本文旧句"仅开发环境注册"即此意，生产仓无此路由）。修改基元后按 §2.5 逐页人工过浅/深两主题。
 
 ## 3. 组件采纳状态
 
 | 类 | 件数 | 成员 | 语义 / 状态 |
 |---|---:|---|---|
-| A vendored（v3 冻结） | 27 | alert-dialog、avatar、breadcrumb、calendar、checkbox、collapsible、command、dialog、dropdown-menu、field、form、input-group、popover、progress、radio-group、scroll-area、select、separator、sheet、sonner、switch、table、tabs、textarea、toggle、toggle-group、tooltip | 只改 token/尺寸类；avatar、progress、tooltip 页面侧仍 0 调用（组件就位、调用点未迁） |
+| A vendored（v3 冻结） | 22 | alert-dialog、calendar、checkbox、collapsible、command、dialog、dropdown-menu、field、input-group、popover、radio-group、select、separator、sheet、sonner、switch、table、tabs、textarea、toggle、toggle-group、tooltip | 只改 token/尺寸类；tooltip 页面侧仍 0 调用（组件就位、调用点未迁）；switch 已接线（2026-11-18，启停唯一实现） |
 | B 并入 shadcn | 11 | button（default/secondary/outline/ghost/**danger**/link × size default/md/sm/lg/icon）、input、badge（6 tone）、card、alert（default/**destructive**/warning/success）、label、pagination（`PAGE_SIZE_OPTIONS`）、skeleton、spinner、empty、confirm-dialog | 保留原 public API；skeleton/spinner/empty 迁移前仍是「待接线」 |
 | C 自建保留 | 4 | combobox（Popover + Command）、time-range-picker（Calendar + 小时 wrapper）、icon-badge、metric-pills | 无 registry 对应件，永久保留；combobox 空值改用 `SELECT_ALL_VALUE` |
-| 已删除 | 4 | `ui/modal.tsx`(77)、`ui/search-select.tsx`(243)、`ui/toast.tsx`(179)、`lib/use-body-scroll-lock.ts` | toast 统一 sonner |
+| 已删除 | 9 | `ui/modal.tsx`(77)、`ui/search-select.tsx`(243)、`ui/toast.tsx`(179)、`lib/use-body-scroll-lock.ts`、`ui/avatar.tsx`(50)、`ui/breadcrumb.tsx`(115)、`ui/form.tsx`(178)、`ui/progress.tsx`(28)、`ui/scroll-area.tsx`(48) | toast 统一 sonner；五基元 0 调用移除（ADR-081 决策 4，2026-11-18），将来需要时一次 copy-in 即回 |
 
-偏差：button 用 `danger`、alert 用 `destructive`（不统一）；`ui/tabs` 已就位但页面 3 处仍是自写分段控件；`ui/empty.tsx` 只导出 `Empty`。
+偏差：button 用 `danger`、alert 用 `destructive`（不统一）；`ui/tabs` 已就位但页面 3 处仍是自写分段控件；`ui/empty.tsx` 只导出 `Empty`。**0 采用（2026-11-18 实测）**：原六件死基元已处置——switch 接线为启停唯一实现（`channels/enabled-toggle.tsx`），avatar、breadcrumb、form、progress、scroll-area 五件移入上表已删除类（sonner 经 `App.tsx` 挂载、skeleton 仅测试引用）；手写违例与处置规则见 §2.1 组件来源治理。
 
 registry 四条：①无 combobox → 本地 Popover+Command；②Radix Select 在触屏弹自绘列表、不弹系统轮盘，要系统 picker 只能自写本地 `ui/native-select.tsx`（ADR-063 登记风险）；③calendar 无时间 API，禁打 time 补丁；④vendored 冻结 v3，重拉校验 `rg 'from "(cn|radix-ui)"' src/components/ui` 期望 0 命中。
 
@@ -84,4 +107,4 @@ registry 四条：①无 combobox → 本地 Popover+Command；②Radix Select �
 
 ---
 
-本文为 ui-standards / ui-adoption-map / ui-stack / design-system 四篇的提炼合并版（2026-11-16）。那四篇原文只存在于内部开发仓，生产仓不随附；本文是生产仓侧的唯一规范正文。
+本文为 ui-standards / ui-adoption-map / ui-stack / design-system 四篇的提炼合并版（2026-11-16；2026-11-18 增补组件来源治理、数据口径与确认弹窗统一条款，源于 playwright-mcp 全站 CRUD 实测）。那四篇原文只存在于内部开发仓，生产仓不随附；本文是生产仓侧的唯一规范正文。

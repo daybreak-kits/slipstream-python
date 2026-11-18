@@ -12,6 +12,7 @@ import {
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   buildUsage,
   buildUserContent,
@@ -290,18 +291,17 @@ export function PlaygroundPage() {
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] min-h-0 flex-col gap-3">
-      <header className="flex shrink-0 flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h1 className="text-h1 font-semibold text-title">模型试验</h1>
-          <p className="mt-1 text-2sm text-muted-foreground">
-            用聊天的方式试模型：聊天记录只保存在这台设备的浏览器里，不写后端。
-          </p>
-          {selected ? (
-            <p className="mt-1 text-2xs text-muted-foreground">{modelRouteLabel(selected)}</p>
-          ) : null}
-        </div>
-        <Badge tone="outline">{models.length} 个可用模型</Badge>
-      </header>
+      <div className="shrink-0">
+        <PageHeader
+          className="gap-2"
+          title="模型试验"
+          description="用聊天的方式试模型：聊天记录只保存在这台设备的浏览器里，不写后端。"
+          actions={<Badge tone="outline">{models.length} 个可用模型</Badge>}
+        />
+        {selected ? (
+          <p className="mt-1 text-2xs text-muted-foreground">{modelRouteLabel(selected)}</p>
+        ) : null}
+      </div>
 
       {noModels ? (
         <Alert>

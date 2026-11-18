@@ -199,6 +199,11 @@ export interface ScheduleTimezonePickerProps {
  * 时区只能从候选里选：手打出「Asia/Shanghia」这类值时，规则永远算不中，
  * 冷却等于没配，却没有任何报错。历史值不合法时仍原样展示（红色），
  * 让人看见脏数据，而不是悄悄换成别的时区。
+ *
+ * 组合语义与 ui/combobox 同栈（Popover + cmdk Command）：combobox/listbox 语义
+ * 由浮层内的搜索框（ui/command）承担，触发按钮只是披露按钮——因为本选择器要
+ * 保留 id/aria-invalid/aria-describedby（调用方用 htmlFor 与错误描述接线），
+ * ui/combobox 暂不支持这三个 props。
  */
 export function ScheduleTimezonePicker({
   id = "schedule-timezone",
@@ -227,7 +232,6 @@ export function ScheduleTimezonePicker({
         <button
           type="button"
           id={id}
-          role="combobox"
           aria-label="IANA 时区"
           aria-expanded={open}
           aria-invalid={invalid || undefined}

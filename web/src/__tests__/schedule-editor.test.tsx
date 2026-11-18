@@ -57,7 +57,7 @@ async function pickTimezone(
   query: string,
   optionName: RegExp,
 ) {
-  await user.click(screen.getByRole("combobox", { name: "IANA 时区" }));
+  await user.click(screen.getByRole("button", { name: "IANA 时区" }));
   await user.type(screen.getByPlaceholderText("搜索时区，如 Tokyo / Europe"), query);
   await user.click(await screen.findByRole("option", { name: optionName }));
 }
@@ -67,7 +67,7 @@ describe("schedule editor timezone picker", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    const trigger = screen.getByRole("combobox", { name: "IANA 时区" });
+    const trigger = screen.getByRole("button", { name: "IANA 时区" });
     expect(trigger).toHaveTextContent(Intl.DateTimeFormat().resolvedOptions().timeZone);
 
     await pickTimezone(user, "tokyo", /Asia\/Tokyo/);
@@ -103,7 +103,7 @@ describe("schedule editor timezone picker", () => {
 
     // 脏数据原样展示 + 显式提醒，不静默换成别的时区
     expect(screen.getByText(/历史值「Asia\/Shanghia」不是合法 IANA 时区/)).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "IANA 时区" })).toHaveTextContent("Asia/Shanghia");
+    expect(screen.getByRole("button", { name: "IANA 时区" })).toHaveTextContent("Asia/Shanghia");
 
     const save = screen.getByRole("button", { name: "保存排期" });
     expect(save).toBeDisabled();

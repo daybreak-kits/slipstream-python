@@ -441,6 +441,11 @@ describe("usage logs page", () => {
     const path = await screen.findByTestId("routing-path");
     expect(within(path).getByText("第 1 轮", { exact: false })).toBeInTheDocument();
     expect(within(path).getByText(/channel-a \/ fake-model/)).toBeInTheDocument();
+
+    // Escape 关闭浮层（基元接管），触发按钮回到「展开」态
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("routing-path")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "展开路由链" })).toBeInTheDocument();
   });
 
   it("opens the full detail drawer with attempts, params, headers and error body", async () => {
@@ -566,6 +571,65 @@ describe("usage logs page", () => {
     const row = await screen.findByTestId("log-row-req-1");
     expect(within(row).queryByText("仅推理")).not.toBeInTheDocument();
     expect(within(row).getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("renders failed rows without $0.00 or 0.00s (ADR-082 口径族)", async () => {
+    const failedBilledTokens = makeLog({
+      id: "LOG00000000000000000000002",
+      request_id: "req-2",
+      http_status: 502,
+      error_code: "UPSTREAM_ERROR",
+      cost_usd: 0,
+      ttft_ms: 0,
+      ttfa_ms: null,
+      total_ms: 800,
+    });
+    const failedNoUsage = makeLog({
+      id: "LOG00000000000000000000003",
+      request_id: "req-3",
+      http_status: 500,
+      error_code: "UPSTREAM_ERROR",
+      cost_usd: 0,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      cached_tokens: 0,
+      cache_ratio: 0,
+      ttft_ms: 0,
+      ttfa_ms: null,
+      total_ms: 0,
+      throughput_tps: null,
+    });
+    installFetch({
+      logs: makeList([
+        makeLog({ cost_usd: 0 }), // 成功 + 有词元 + 费用 0 ⇒ 未配置单价
+        failedBilledTokens,
+        failedNoUsage,
+      ]),
+      detail: failedBilledTokens,
+    });
+    renderLogs();
+
+    const succeededUnconfigured = await screen.findByTestId("log-row-req-1");
+    expect(within(succeededUnconfigured).getByText("未配置单价")).toBeInTheDocument();
+
+    const failedRow = screen.getByTestId("log-row-req-2");
+    // 失败行费用没有计费数据可言：数值位「—」，永不 $0.00。
+    expect(within(failedRow).queryByText(/\$0\.00/)).not.toBeInTheDocument();
+    expect(within(failedRow).queryByText(/0\.00s/)).not.toBeInTheDocument();
+    expect(within(failedRow).getAllByText("—").length).toBeGreaterThanOrEqual(3);
+    // 上游在输出前失败：首字/首答从未发生，不给「仅推理」。
+    expect(within(failedRow).queryByText("仅推理")).not.toBeInTheDocument();
+
+    const noUsageRow = screen.getByTestId("log-row-req-3");
+    expect(within(noUsageRow).queryByText(/\$0\.00/)).not.toBeInTheDocument();
+    expect(within(noUsageRow).queryByText(/0\.00s/)).not.toBeInTheDocument();
+
+    // 详情抽屉同口径。
+    const user = userEvent.setup();
+    await user.click(within(failedRow).getByRole("button", { name: "查看请求 req-2 详情" }));
+    const drawer = await screen.findByRole("dialog", { name: "请求详情" });
+    expect(within(drawer).queryByText(/\$0\.00/)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(/0\.00s/)).not.toBeInTheDocument();
   });
 
   it("shows the probe source for probe-metrics logs", async () => {

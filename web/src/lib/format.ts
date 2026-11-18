@@ -62,11 +62,30 @@ export function formatCostOrUnconfigured(
 }
 
 /**
- * 每百万 token 的价格（输入价/输出价）：两位起、最多四位，
+ * 日志请求行的费用口径（列表行、聚合组、详情抽屉共用）：
+ * - 失败请求从未完成一次可计费的响应，费用为 0 是「没有计费数据」而不是免费，
+ *   数值位给「—」，不渲染 $0.00；计到真实费用（cost > 0）的失败请求仍显示真实值。
+ * - 成功请求沿用 isCostUnconfigured 的口径（有词元消耗而费用为 0 ⇒ 未配置单价）。
+ */
+export function formatRequestCost(
+  cost: number | null | undefined,
+  tokens: number | null | undefined,
+  failed: boolean,
+): string {
+  if (failed && (cost === null || cost === undefined || !Number.isFinite(cost) || cost <= 0)) {
+    return "—";
+  }
+  return formatCostOrUnconfigured(cost, tokens);
+}
+
+/**
+ * 每百万 token 的价格（输入价/输出价/缓存价）：两位起、最多四位，
  * 低价模型的单位价格会精确到 0.0001 美元；缺数据给破折号。
+ * 单价 0 的正式语义是「未配置」（ADR-082：系统不支持显式标价 0 的免费模型），
+ * 数值位给「—」而不渲染 $0.00——后者会被读成免费。
  */
 export function formatPricePer1m(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (value === null || value === undefined || !Number.isFinite(value) || value === 0) return "—";
   return "$" + value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
 

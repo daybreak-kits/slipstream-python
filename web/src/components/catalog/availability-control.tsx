@@ -11,24 +11,31 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FieldDescription } from "@/components/ui/field";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Spinner } from "@/components/ui/spinner";
 import {
   CooldownDraft,
-  CooldownDraftFields,
+  CooldownFields,
   cooldownDraftSubmit,
   initialCooldownDraft,
 } from "@/components/models/cooldown-dialog";
+import {
+  ScheduleRulesFieldset,
+  ScheduleTimezonePicker,
+  describeSchedule,
+  validateScheduleRules,
+} from "@/components/models/schedule-rules";
 import { formatCooldownTime } from "@/components/models/model-status";
 import { availabilityBody, availabilityPlan } from "@/components/models/model-availability";
 import type { ChannelSchedule, HealthStatus, ScheduleDocument } from "@/lib/channel-models";
 import { useTimezone } from "@/lib/time";
+import { isValidTimezone } from "@/lib/timezone";
 
 /** 封禁弹窗的提交结果：
  * - availability 是「永久封禁 / 启用复位」（写 enabled + banned_until，bannedUntil null = 永久）；
  * - cooldown 是「按持续时间冷却」（走 op=cooldown，写 banned_until）；
- * - schedule 是「按计划窗口冷却」（走 op=schedule，写 schedule_json v2）。
+ * - schedule 是「按冷却窗口冷却」（走 op=schedule，写 schedule_json v2）。
  */
 export type AvailabilitySubmit =
   | { type: "availability"; enabled: boolean; bannedUntil: number | null; reset: boolean }
@@ -47,13 +54,15 @@ export interface AvailabilityControlProps {
   onConfirm: (submit: AvailabilitySubmit) => void;
 }
 
-type StopMode = "permanent" | "timed";
+/** 2026-11-18 用户裁定：停止方式压平成一组三个单选，不再出现嵌套的
+ * 「冷却（定时）→ 按持续时间/按冷却窗口」两层同视觉层级的选项。 */
+type StopMode = "permanent" | "duration" | "window";
 
 /**
  * 直连行的「封禁 / 启用」控件，口径按用户裁定（ADR-070 + task-136）：
  * - 封禁 = 永久，不出现在 /v1/models，手动启用才恢复；
  * - 冷却 = 定时自愈，仍出现在 /v1/models，路由跳过；
- *   两种方式：按持续时间（1h/24h/7d/自定义时刻）与按计划窗口（复用排期规则编辑器）；
+ *   两种方式：定时冷却（1h/24h/7d/自定义时刻）与冷却窗口（复用排期规则编辑器）；
  * - 健康异常时按钮仍是「启用」，行为是复位（与 components/models/model-availability 一致）。
  */
 export function AvailabilityControl({
@@ -84,13 +93,23 @@ export function AvailabilityControl({
     }
   }, [stopOpen, enableOpen, initialSchedule]);
 
-  const draftSubmit = cooldownDraftSubmit(draft);
-  const timedInvalid = stopMode === "timed" && draftSubmit === null;
+  // 永久封禁不走冷却草稿；两种冷却共用一份草稿，按当前方式校验。
+  const modeSubmit =
+    stopMode === "permanent" ? null : cooldownDraftSubmit({ ...draft, method: stopMode });
+  const modeInvalid = stopMode !== "permanent" && modeSubmit === null;
   const coolingNow = typeof bannedUntil === "number" && bannedUntil > Date.now();
+  const timezoneInvalid = !isValidTimezone(draft.timezone.trim());
+  const rulesError = stopMode === "window" ? validateScheduleRules(draft.rules) : null;
 
   const openControl = () => {
     if (action === "ban") setStopOpen(true);
     else setEnableOpen(true);
+  };
+
+  const selectStopMode = (value: string) => {
+    const mode = value as StopMode;
+    setStopMode(mode);
+    if (mode !== "permanent") setDraft((previous) => ({ ...previous, method: mode }));
   };
 
   const confirmStop = () => {
@@ -98,11 +117,11 @@ export function AvailabilityControl({
       onConfirm({ type: "availability", enabled: false, bannedUntil: null, reset: false });
       return;
     }
-    if (draftSubmit === null) return;
+    if (modeSubmit === null) return;
     onConfirm(
-      draftSubmit.kind === "cooldown"
-        ? { type: "cooldown", bannedUntil: draftSubmit.untilMs }
-        : { type: "schedule", schedule: draftSubmit.schedule },
+      modeSubmit.kind === "cooldown"
+        ? { type: "cooldown", bannedUntil: modeSubmit.untilMs }
+        : { type: "schedule", schedule: modeSubmit.schedule },
     );
   };
 
@@ -114,7 +133,8 @@ export function AvailabilityControl({
         aria-label={label + " " + subject}
         disabled={busy}
         onClick={openControl}
-        className={action === "ban" ? "text-danger" : "text-success-text"}
+        // 危险前景统一 --danger-text（ui.md §2.3：同一控件不混用两种危险色）
+        className={action === "ban" ? "text-danger-text" : "text-success-text"}
       >
         {busy ? (
           <Spinner size="sm" label="" aria-hidden="true" />
@@ -127,7 +147,8 @@ export function AvailabilityControl({
       <Dialog open={stopOpen} onOpenChange={setStopOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>封禁 {subject}</DialogTitle>
+            {/* 封禁是危险动作：标题问句化（audit N7）。含冷却表单故保留 Dialog 形态，只改标题。 */}
+            <DialogTitle>封禁 {subject}？</DialogTitle>
             <DialogDescription>
               两种方式都让模型不接流量：封禁是永久的、不出现在 /v1/models；冷却到期自动恢复、期间仍可见。
             </DialogDescription>
@@ -135,7 +156,7 @@ export function AvailabilityControl({
           <div className="flex flex-col gap-3">
             <RadioGroup
               value={stopMode}
-              onValueChange={(value) => setStopMode(value as StopMode)}
+              onValueChange={selectStopMode}
               aria-label="停止方式"
             >
               <div className="flex items-start gap-2">
@@ -150,32 +171,76 @@ export function AvailabilityControl({
                 </div>
               </div>
               <div className="flex items-start gap-2">
-                <RadioGroupItem value="timed" id="row-stop-timed" className="mt-0.5" />
+                <RadioGroupItem value="duration" id="row-stop-duration" className="mt-0.5" />
                 <div className="flex flex-col gap-0.5">
-                  <label htmlFor="row-stop-timed" className="cursor-pointer text-xs font-medium text-title">
-                    冷却（定时）
+                  <label htmlFor="row-stop-duration" className="cursor-pointer text-xs font-medium text-title">
+                    定时冷却
                   </label>
                   <span className="text-2xs text-muted-foreground">
-                    期间仍出现在 /v1/models、路由跳过，到点自动恢复。
+                    一次性冷却：到指定时刻自动恢复；期间仍出现在 /v1/models，路由跳过。
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <RadioGroupItem value="window" id="row-stop-window" className="mt-0.5" />
+                <div className="flex flex-col gap-0.5">
+                  <label htmlFor="row-stop-window" className="cursor-pointer text-xs font-medium text-title">
+                    冷却窗口
+                  </label>
+                  <span className="text-2xs text-muted-foreground">
+                    重复时段：窗口内自动冷却、窗口外自动恢复；期间同样可见、路由跳过。
                   </span>
                 </div>
               </div>
             </RadioGroup>
 
-            {stopMode === "timed" ? (
+            {stopMode === "duration" ? (
+              <CooldownFields
+                idPrefix="row-cooldown"
+                preset={draft.preset}
+                onPresetChange={(preset) => setDraft((previous) => ({ ...previous, preset }))}
+                customValue={draft.customValue}
+                onCustomChange={(customValue) => setDraft((previous) => ({ ...previous, customValue }))}
+                currentUntil={bannedUntil}
+              />
+            ) : null}
+
+            {stopMode === "window" ? (
               <>
-                <CooldownDraftFields
-                  idPrefix="row-cooldown"
-                  draft={draft}
-                  onChange={setDraft}
-                  currentUntil={bannedUntil}
-                />
-                {coolingNow ? (
+                <Field>
+                  <FieldLabel htmlFor="row-cooldown-timezone">IANA 时区</FieldLabel>
+                  <ScheduleTimezonePicker
+                    id="row-cooldown-timezone"
+                    value={draft.timezone}
+                    invalid={timezoneInvalid}
+                    onChange={(timezone) => setDraft((previous) => ({ ...previous, timezone }))}
+                  />
                   <FieldDescription>
-                    当前冷却到 {formatCooldownTime(bannedUntil as number, mode)}；确认后会覆盖原到期时间。
+                    窗口按该时区的墙钟生效，不随夏令时漂移；冷却期间模型仍出现在 /v1/models，路由跳过。
                   </FieldDescription>
-                ) : null}
+                </Field>
+                <ScheduleRulesFieldset
+                  rules={draft.rules}
+                  onChange={(rules) => setDraft((previous) => ({ ...previous, rules }))}
+                  idPrefix="row-cooldown-rule"
+                  addLabel="再加一条规则"
+                />
+                <FieldDescription aria-live="polite">
+                  {timezoneInvalid ? (
+                    <span className="text-danger-text">请选择一个 IANA 时区</span>
+                  ) : rulesError ? (
+                    <span className="text-danger-text">{rulesError}</span>
+                  ) : (
+                    describeSchedule(draft.rules)
+                  )}
+                </FieldDescription>
               </>
+            ) : null}
+
+            {stopMode !== "permanent" && coolingNow ? (
+              <FieldDescription>
+                当前冷却到 {formatCooldownTime(bannedUntil as number, mode)}；确认后会覆盖原到期时间。
+              </FieldDescription>
             ) : null}
           </div>
           <DialogFooter>
@@ -184,7 +249,7 @@ export function AvailabilityControl({
             </Button>
             <Button
               variant={stopMode === "permanent" ? "danger" : "default"}
-              disabled={busy || timedInvalid}
+              disabled={busy || modeInvalid}
               onClick={confirmStop}
             >
               {busy ? "提交中…" : stopMode === "permanent" ? "确认封禁" : "确认冷却"}

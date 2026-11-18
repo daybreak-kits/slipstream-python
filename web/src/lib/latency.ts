@@ -73,6 +73,24 @@ export function formatLatency(ms: number | null | undefined): string {
   return formatDuration(ms);
 }
 
+/**
+ * 耗时位是否没有数据（ADR-082 同族口径：无数据不渲染 0.00s，数值位给「—」）：
+ * - null/NaN 一律无数据；
+ * - 总耗时 0 表示上游没有回报（请求行的既有口径）；
+ * - 失败请求的首字/首答为 0 表示输出前就失败了，这两个值从未发生。
+ * 成功请求的首字/首答为 0 保留原值（后端仅在缺失时给 null）。
+ */
+export function isLatencyMissing(
+  ms: number | null | undefined,
+  kind: LatencyKind,
+  failed = false,
+): boolean {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return true;
+  if (kind === "total") return ms === 0;
+  if (failed) return ms === 0;
+  return false;
+}
+
 export function latencyDescription(ms: number | null | undefined, kind: LatencyKind): string {
   if (ms == null || !Number.isFinite(ms)) return `${LATENCY_LABEL[kind]}无数据`;
   const tone = latencyTone(ms, kind);

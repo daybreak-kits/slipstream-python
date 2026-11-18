@@ -66,7 +66,10 @@ describe("ModelAvailabilityButton", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "封禁 alpha-model" }));
-    expect(screen.getByRole("heading", { name: "封禁模型" })).toBeInTheDocument();
+    // 危险确认统一 alertdialog 语义 + 问句标题（ui.md §2.3）
+    expect(
+      screen.getByRole("alertdialog", { name: "封禁模型 alpha-model？" }),
+    ).toBeInTheDocument();
     expect(onConfirm).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "确认封禁" }));
@@ -126,7 +129,7 @@ describe("ModelAvailabilityButton", () => {
     await user.click(screen.getByRole("button", { name: "封禁 alpha-model" }));
     await user.click(screen.getByRole("button", { name: "取消" }));
     expect(onConfirm).not.toHaveBeenCalled();
-    expect(screen.queryByRole("heading", { name: "封禁模型" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("disables the trigger while a request is in flight", () => {

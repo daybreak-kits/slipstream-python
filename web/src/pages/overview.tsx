@@ -12,7 +12,6 @@ import {
   Rocket,
   Server,
   ShieldCheck,
-  Sparkles,
   Terminal,
   X,
 } from "lucide-react";
@@ -24,6 +23,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/ui/page-header";
 import { Spinner } from "@/components/ui/spinner";
 import { notify } from "@/lib/notify";
 import { describeApiError, listChannels } from "@/lib/channels";
@@ -39,30 +39,17 @@ import {
 } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 
+// 端点清单与后端注册逐项对齐（ui.md §2.4「能力宣传=事实」）：/v1 只有这两个路由（ssot 数据面契约）。
 const ENDPOINTS = [
   {
-    protocol: "OpenAI 兼容",
     method: "POST",
     path: "/v1/chat/completions",
     description: "对话补全，支持流式与非流式",
   },
   {
-    protocol: "OpenAI 兼容",
     method: "GET",
     path: "/v1/models",
     description: "列出当前可调用的模型",
-  },
-  {
-    protocol: "Anthropic",
-    method: "POST",
-    path: "/v1/messages",
-    description: "Claude Messages 协议",
-  },
-  {
-    protocol: "Gemini",
-    method: "POST",
-    path: "/v1beta/models/{model}:generateContent",
-    description: "Gemini 原生协议",
   },
 ];
 
@@ -179,12 +166,10 @@ export function OverviewPage() {
 
   return (
     <div className="animate-fade-up">
-      <div>
-        <h1 className="text-h1 font-semibold tracking-[-0.02em] text-title">全局概览</h1>
-        <p className="mt-1.5 max-w-3xl text-2sm leading-6 text-muted-foreground">
-           这里是接入驭流所需的全部连接信息。客户端把请求发到下方网关地址，使用用户密钥认证，即可调用已配置渠道中的模型。
-        </p>
-      </div>
+      <PageHeader
+        title="全局概览"
+        description="这里是接入驭流所需的全部连接信息。客户端把请求发到下方网关地址，使用用户密钥认证，即可调用已配置渠道中的模型。"
+      />
 
       {settingsQuery.isError ? (
         <Alert variant="destructive" className="mt-4">
@@ -373,7 +358,7 @@ export function OverviewPage() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-2xs text-muted-foreground">{item.label}</p>
-                    <p className="mt-0.5 text-metric font-semibold tabular-nums tracking-[-0.02em] text-title">
+                    <p className="mt-0.5 text-metric font-semibold tabular-nums tracking-[-0.01em] text-title">
                       {item.value}
                     </p>
                     {item.sub ? (
@@ -381,7 +366,7 @@ export function OverviewPage() {
                     ) : null}
                   </div>
                   <ArrowRight
-                    className="h-4 w-4 shrink-0 text-muted-foreground transition-all duration-150 group-hover:translate-x-0.5 group-hover:text-primary"
+                    className="h-4 w-4 shrink-0 text-muted-foreground transition-[transform,color] duration-150 group-hover:translate-x-0.5 group-hover:text-primary"
                     strokeWidth={1.75}
                     aria-hidden="true"
                   />
@@ -431,6 +416,20 @@ export function OverviewPage() {
                 <span className="text-2xs text-muted-foreground">{endpoint.description}</span>
               </div>
             ))}
+            <div className="flex flex-wrap items-center gap-3 px-5 py-3">
+              <span className="inline-flex h-5 w-13 shrink-0 items-center justify-center rounded-badge bg-surface-2 text-muted-foreground">
+                <KeyRound className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
+              </span>
+              <code className="min-w-0 flex-1 break-all font-mono text-xs text-title">
+                Authorization: Bearer &lt;用户密钥&gt;
+              </code>
+              <Link
+                to="/keys"
+                className="text-2xs font-medium text-primary hover:underline"
+              >
+                在用户密钥页签发
+              </Link>
+            </div>
           </div>
         </Card>
 
@@ -469,7 +468,7 @@ export function OverviewPage() {
                 <p className="mt-0.5 text-2xs leading-5 text-muted-foreground">模型名与协议无关，切换上游无需改代码。</p>
                 <Link to="/playground" className={cn(buttonVariants({ variant: "link", size: "sm" }), "mt-1 h-auto p-0 text-2xs")}>
                   在模型试验中验证
-                  <Sparkles className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
+                  <ArrowRight className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
                 </Link>
               </div>
             </li>

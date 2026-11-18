@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -141,6 +141,68 @@ describe("keys page", () => {
     expect(vi.mocked(copyText)).toHaveBeenCalledWith("sk-demo-plaintext");
     expect(await screen.findByRole("button", { name: "已复制" })).toBeInTheDocument();
     expect(await screen.findByText("已复制密钥")).toBeInTheDocument();
+  });
+
+  // ui.md §2.3：危险确认全站唯一实现（ui/confirm-dialog → alertdialog 语义），
+  // 可访问名（标题）必须是问句。
+  it("delete and reset confirms are alertdialogs with question-form titles", async () => {
+    const key = makeKey();
+    const calls: Array<{ url: string; method: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        calls.push({ url, method });
+        if (method === "GET" && url === "/api/keys") {
+          return jsonResponse({ items: [key], total: 1 });
+        }
+        if (method === "DELETE" && url === `/api/keys/${key.id}`) {
+          return new Response(null, { status: 204 });
+        }
+        if (method === "POST" && url === `/api/keys/${key.id}/reset`) {
+          return jsonResponse({ ...key, prefix: "sk-new-pre" });
+        }
+        return jsonResponse({ code: "NOT_FOUND", message: "not mocked" }, 404);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("laptop");
+
+    await user.click(screen.getByRole("button", { name: "删除" }));
+    const deleteDialog = screen.getByRole("alertdialog");
+    expect(deleteDialog).toHaveAttribute("aria-modal", "true");
+    expect(
+      screen.getByRole("alertdialog", { name: "删除密钥 laptop？" }),
+    ).toBeInTheDocument();
+    expect(deleteDialog).toHaveTextContent("此操作不可撤销");
+    // 取消不产生 DELETE
+    await user.click(within(deleteDialog).getByRole("button", { name: "取消" }));
+    expect(calls.some((call) => call.method === "DELETE")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "删除" }));
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", { name: "删除" }),
+    );
+    await waitFor(() => {
+      expect(calls.some((call) => call.method === "DELETE")).toBe(true);
+    });
+
+    await user.click(screen.getByRole("button", { name: "重置" }));
+    expect(
+      screen.getByRole("alertdialog", { name: "重置密钥 laptop？" }),
+    ).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", { name: "重置密钥" }),
+    );
+    await waitFor(() => {
+      expect(
+        calls.some((call) => call.method === "POST" && call.url.endsWith("/reset")),
+      ).toBe(true);
+    });
   });
 
   it("surfaces duplicate label errors without leaking the key", async () => {

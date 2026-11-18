@@ -382,8 +382,8 @@ export function ChannelModelsPanel({ channelId }: ChannelModelsPanelProps) {
                           <p className="break-words font-mono text-xs text-title">{model.upstream_model}</p>
                           <p className="mt-0.5 text-2xs text-muted-foreground">
                             {scheduleLabel ? (
-                              <span className="ml-1.5 text-2xs text-muted-foreground" title="计划窗口">
-                                · 计划 {scheduleLabel}
+                              <span className="ml-1.5 text-2xs text-muted-foreground" title="冷却窗口">
+                                · 冷却窗口 {scheduleLabel}
                               </span>
                             ) : null}
                             {model.enabled ? null : (
@@ -427,10 +427,13 @@ export function ChannelModelsPanel({ channelId }: ChannelModelsPanelProps) {
                             {formatPricePer1m(model.output_price_per_1m)}
                           </p>
                           <p className="mt-1 whitespace-nowrap text-2xs text-muted-foreground">
-                            {model.cache_read_price_per_1m === null &&
-                            model.cache_write_price_per_1m === null
-                              ? "缓存按输入价"
-                              : `缓存读 ${formatPricePer1m(model.cache_read_price_per_1m)} / 写 ${formatPricePer1m(model.cache_write_price_per_1m)}`}
+                            {/* 单价 0 = 未配置（ADR-082）：数值位「—」，原因放 hint。 */}
+                            {model.input_price_per_1m === 0 && model.output_price_per_1m === 0
+                              ? "未配置单价"
+                              : model.cache_read_price_per_1m === null &&
+                                  model.cache_write_price_per_1m === null
+                                ? "缓存按输入价"
+                                : `缓存读 ${formatPricePer1m(model.cache_read_price_per_1m)} / 写 ${formatPricePer1m(model.cache_write_price_per_1m)}`}
                           </p>
                         </TableCell>
                         <TableCell className="px-3 py-3">
@@ -526,7 +529,8 @@ export function ChannelModelsPanel({ channelId }: ChannelModelsPanelProps) {
         onOpenChange={(next) => {
           if (!next) setDeleteTarget(null);
         }}
-        title="删除模型"
+        // 危险确认标题问句化（ui.md §2.3）
+        title={deleteTarget ? `删除模型 ${deleteTarget.upstream_model}？` : "删除模型？"}
         description={`删除后，使用该调用名的请求将无法路由。确定删除「${deleteTarget?.upstream_model ?? ""}」吗？`}
         confirmLabel="确认删除"
         destructive

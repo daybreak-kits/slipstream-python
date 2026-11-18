@@ -387,3 +387,67 @@ describe("new channel draft flow", () => {
     expect(createBody).not.toHaveProperty("api_keys");
   });
 });
+
+describe("channel detail connection status card", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function renderDetail(channel: Channel) {
+    toast.dismiss();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/channels/${channel.id}`]}>
+          <Routes>
+            <Route path="/channels/:channelId" element={<ChannelDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  function mockChannelFetch(channel: Channel) {
+    return vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith(`/api/channels/${channel.id}`)) return jsonResponse(channel);
+      return jsonResponse({ items: [], total: 0 });
+    });
+  }
+
+  // audit P4 / ui.md §2.4「空容器不渲染」：从未测试的渠道没有探测消息，
+  // 连接状态卡不得画出一根空灰条；状态/耗时/最近测试三行照常。
+  it("hides the message box when the channel has no connection message", async () => {
+    const channel = makeChannel({
+      connection_status: "unknown",
+      connection_latency_ms: null,
+      connection_message: "",
+      connection_tested_at: null,
+    });
+    vi.stubGlobal("fetch", mockChannelFetch(channel));
+
+    const { container } = renderDetail(channel);
+
+    expect(await screen.findByText("Alpha")).toBeInTheDocument();
+    // 其余信息正常：状态徽标（页头 + 卡内两处）、耗时与最近测试都是「—」口径
+    expect(screen.getAllByText("未知状态").length).toBeGreaterThan(0);
+    const statusCard = screen.getByText("连接状态").closest('[data-slot="card"]');
+    expect(statusCard).not.toBeNull();
+    expect(statusCard!.querySelectorAll("p.bg-surface-2")).toHaveLength(0);
+    expect(
+      container.querySelector("[data-testid='connection-message']"),
+    ).toBeNull();
+  });
+
+  it("keeps rendering the message box when a connection message exists", async () => {
+    const channel = makeChannel();
+    vi.stubGlobal("fetch", mockChannelFetch(channel));
+
+    renderDetail(channel);
+
+    expect(await screen.findByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByTestId("connection-message")).toHaveTextContent(
+      "连接正常",
+    );
+  });
+});

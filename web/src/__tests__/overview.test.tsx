@@ -59,6 +59,39 @@ function renderPage() {
 describe("overview page", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  // audit N1 / ui.md §2.4「能力宣传=事实」：端点清单与后端注册逐项对齐，
+  // 后端 /v1 只有 POST /chat/completions 与 GET /models（ssot §数据面）。
+  it("lists only the two implemented endpoints plus an auth note", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/settings")) return jsonResponse(makeSettings());
+        if (url.startsWith("/api/channels")) return jsonResponse({ items: [], total: 3 });
+        if (url === "/api/keys") return jsonResponse({ items: [], total: 2 });
+        if (url === "/api/catalog") return jsonResponse({ items: [], total: 5 });
+        throw new Error(`unexpected request: ${url}`);
+      }),
+    );
+
+    renderPage();
+
+    // 两个真实端点都在，方法徽标照旧由渲染层给出
+    expect(await screen.findByText("/v1/chat/completions")).toBeInTheDocument();
+    expect(screen.getByText("/v1/models")).toBeInTheDocument();
+    // 未实现条目不再宣传（实测 404）
+    expect(screen.queryByText("/v1/messages")).not.toBeInTheDocument();
+    expect(screen.queryByText(/generateContent/)).not.toBeInTheDocument();
+    // 补一行认证说明，与「开始使用」第 2 步一样指向用户密钥页
+    expect(
+      screen.getByText("Authorization: Bearer <用户密钥>"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "在用户密钥页签发" })).toHaveAttribute(
+      "href",
+      "/keys",
+    );
+  });
+
   it("falls back to the browser origin and saves a configured gateway", async () => {
     let current = makeSettings();
     const patchBodies: unknown[] = [];

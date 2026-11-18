@@ -18,18 +18,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { Alert } from "@/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogClose,
@@ -41,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/ui/page-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { describeApiError } from "@/lib/channels";
@@ -165,21 +157,20 @@ export function KeysPage() {
       setCreated(key);
       setCreatedKind("reset");
       setCopied(false);
-      setResetting(null);
       setActionError(null);
       await queryClient.invalidateQueries({ queryKey: ["keys"] });
     },
-    onError: (error) => setActionError(describeApiError(error)),
+    // ConfirmDialog 点确认即关闭，错误改走 toast（与 channel-keys-panel 同范式）
+    onError: (error) => notify.error("重置密钥失败", { description: describeApiError(error) }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteKey(id),
     onSuccess: async () => {
-      setDeleting(null);
       setActionError(null);
       await queryClient.invalidateQueries({ queryKey: ["keys"] });
     },
-    onError: (error) => setActionError(describeApiError(error)),
+    onError: (error) => notify.error("删除密钥失败", { description: describeApiError(error) }),
   });
 
   const copyRowMutation = useMutation({
@@ -239,19 +230,21 @@ export function KeysPage() {
 
   return (
     <div className="animate-fade-up">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-h1 font-semibold tracking-[-0.02em] text-title">用户密钥</h1>
-          <p className="mt-1.5 max-w-2xl text-2sm leading-6 text-muted-foreground">
+      <PageHeader
+        title="用户密钥"
+        description={
+          <>
             签发用于调用 <span className="font-mono text-xs">/v1/chat/completions</span> 的
             Bearer 密钥。完整密钥加密存放于服务端，可随时在列表中复制；怀疑泄露时请立即重置。
-          </p>
-        </div>
-        <Button onClick={openCreate}>
-          <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-          新建密钥
-        </Button>
-      </div>
+          </>
+        }
+        actions={
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+            新建密钥
+          </Button>
+        }
+      />
 
       {keysQuery.isError ? (
         <Alert variant="destructive" className="mt-4">
@@ -371,6 +364,8 @@ export function KeysPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        // 行内语义色对齐模型行口径：停用红、恢复绿（ui.md §2.3 危险前景统一 --danger-text）
+                        className={key.enabled ? "text-danger-text" : "text-success-text"}
                         disabled={updateMutation.isPending}
                         onClick={() =>
                           updateMutation.mutate({ id: key.id, payload: { enabled: !key.enabled } })
@@ -386,6 +381,8 @@ export function KeysPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        // 重置让旧密钥立即失效，属破坏性动作：与删除同用危险前景
+                        className="text-danger-text"
                         onClick={() => {
                           setResetting(key);
                           setActionError(null);
@@ -397,13 +394,14 @@ export function KeysPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        // 危险前景统一 --danger-text：同一控件不混用 --danger 与 --danger-text（ui.md §2.3）
                         className="text-danger-text"
                         onClick={() => {
                           setDeleting(key);
                           setActionError(null);
                         }}
                       >
-                        <Trash2 className="h-3.5 w-3.5 text-danger" strokeWidth={1.75} aria-hidden="true" />
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
                         删除
                       </Button>
                     </div>
@@ -500,87 +498,42 @@ export function KeysPage() {
         {actionError ? <Alert variant="destructive" className="mt-3">{actionError}</Alert> : null}
       </KeyDialog>
 
-      <AlertDialog
+      {/* 危险确认统一走 ui/confirm-dialog（ui.md §2.3）：alertdialog 语义 + 问句标题。 */}
+      <ConfirmDialog
         open={Boolean(deleting)}
         onOpenChange={(next) => {
           if (!next) setDeleting(null);
         }}
-      >
-        <AlertDialogContent
-          className="gap-3 rounded-card border-border bg-surface p-5 shadow-pop sm:rounded-card"
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-sm font-semibold text-title">删除密钥</AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-muted-foreground">
-              {deleting ? `删除后，使用 ${deleting.label} 的客户端会立即收到 401。` : "删除后，使用该密钥的客户端会立即收到 401。"}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {actionError ? (
-            <Alert variant="destructive">{actionError}</Alert>
-          ) : (
-            <p className="text-2sm text-muted-foreground">此操作不可撤销。</p>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>取消</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "danger" })}
-              disabled={deleteMutation.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                if (deleting) deleteMutation.mutate(deleting.id);
-              }}
-            >
-              <Trash2 className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-              删除
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={deleting ? `删除密钥 ${deleting.label}？` : ""}
+        description={
+          deleting
+            ? `删除后，使用 ${deleting.label} 的客户端会立即收到 401，此操作不可撤销。`
+            : "删除后，使用该密钥的客户端会立即收到 401，此操作不可撤销。"
+        }
+        confirmLabel="删除"
+        destructive
+        onConfirm={() => {
+          if (deleting) deleteMutation.mutate(deleting.id);
+        }}
+      />
 
-      <AlertDialog
+      <ConfirmDialog
         open={Boolean(resetting)}
         onOpenChange={(next) => {
           if (!next) setResetting(null);
         }}
-      >
-        <AlertDialogContent
-          className="gap-3 rounded-card border-border bg-surface p-5 shadow-pop sm:rounded-card"
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-sm font-semibold text-title">重置密钥</AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-muted-foreground">
-              {resetting
-                ? `重置后，使用 ${resetting.label} 的旧密钥立即失效，客户端会收到 401。`
-                : "重置后，使用该密钥的旧客户端会立即收到 401。"}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {actionError ? (
-            <Alert variant="destructive">{actionError}</Alert>
-          ) : (
-            <p className="text-2sm text-muted-foreground">
-              将生成新的密钥明文（之后也可在列表中复制），旧密钥立即作废。
-            </p>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={resetMutation.isPending}>取消</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "danger" })}
-              disabled={resetMutation.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                if (resetting) resetMutation.mutate(resetting.id);
-              }}
-            >
-              {resetMutation.isPending ? (
-                <Spinner aria-hidden="true" />
-              ) : (
-                <RotateCcw className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-              )}
-              重置密钥
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={resetting ? `重置密钥 ${resetting.label}？` : ""}
+        description={
+          resetting
+            ? `重置后，使用 ${resetting.label} 的旧密钥立即失效，客户端会收到 401。将生成新的密钥明文（之后也可在列表中复制），旧密钥立即作废。`
+            : "重置后，使用该密钥的旧客户端会立即收到 401。将生成新的密钥明文（之后也可在列表中复制），旧密钥立即作废。"
+        }
+        confirmLabel="重置密钥"
+        destructive
+        onConfirm={() => {
+          if (resetting) resetMutation.mutate(resetting.id);
+        }}
+      />
 
       <KeyDialog
         open={Boolean(created)}

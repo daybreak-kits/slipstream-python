@@ -426,6 +426,38 @@ describe("model management page", () => {
     );
   });
 
+  it("switches candidate member type via the tabs (click + arrow keys)", async () => {
+    setupFetch({ catalog: [catalogItem()], combos: [], groups: [] });
+    await renderCatalog();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "新建组合" }));
+    expect(await screen.findByRole("heading", { name: "新建手动组合" })).toBeInTheDocument();
+
+    const modelTab = screen.getByRole("tab", { name: "渠道模型" });
+    const comboTab = screen.getByRole("tab", { name: "子组合" });
+    expect(modelTab).toHaveAttribute("aria-selected", "true");
+    expect(comboTab).toHaveAttribute("aria-selected", "false");
+    // 渠道模型 tab 下有可加入的候选芯片
+    expect(screen.getByRole("button", { name: "添加 channel-a/A" })).toBeInTheDocument();
+
+    await user.click(comboTab);
+    expect(comboTab).toHaveAttribute("aria-selected", "true");
+    expect(modelTab).toHaveAttribute("aria-selected", "false");
+    // 没有子组合时给空态；候选芯片随之消失
+    expect(screen.getByText("没有可用的子组合")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "添加 channel-a/A" })).toBeNull();
+
+    // ←/→ 循环切换：焦点落在子组合 tab 上，右箭头绕回渠道模型
+    await user.keyboard("{ArrowRight}");
+    expect(modelTab).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowRight}");
+    expect(comboTab).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowLeft}");
+    expect(modelTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "添加 channel-a/A" })).toBeInTheDocument();
+  });
+
   it("overrides routes per combo and rejects an invalid custom window", async () => {
     const { calls } = setupFetch({ catalog: [catalogItem()], combos: [], groups: [] });
     await renderCatalog();
@@ -515,9 +547,12 @@ describe("model management page", () => {
 
     await user.click(screen.getByRole("button", { name: "封禁 channel-a/A" }));
     // 新版停用弹窗把「永久封禁」与「定时冷却」放在一起选（ADR-070），默认是永久封禁。
-    expect(await screen.findByText("封禁 channel-a/A")).toBeInTheDocument();
+    // 封禁是危险动作：标题问句化（ui.md §2.3）
+    expect(await screen.findByRole("dialog", { name: "封禁 channel-a/A？" })).toBeInTheDocument();
     expect(screen.getByText("封禁（永久）")).toBeInTheDocument();
-    expect(screen.getByText("冷却（定时）")).toBeInTheDocument();
+    // 2026-11-18 压平后三种方式同一组单选：定时冷却与冷却窗口取代嵌套的「冷却（定时）」层
+    expect(screen.getByText("定时冷却")).toBeInTheDocument();
+    expect(screen.getByText("冷却窗口")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "确认封禁" }));
 
     await waitFor(() => {

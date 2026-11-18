@@ -4,8 +4,10 @@ import {
   formatCacheHitRate,
   formatCachePercent,
   formatCompact,
+  formatPricePer1m,
   formatPercent,
   formatRate,
+  formatRequestCost,
   formatSpanMinutes,
   formatThroughput,
   formatUsdCompact,
@@ -70,6 +72,37 @@ describe("compact numbers", () => {
     expect(formatUsdFine(null)).toBe("—");
     expect(formatUsdFine(undefined)).toBe("—");
     expect(formatUsdFine(Number.NaN)).toBe("—");
+  });
+});
+
+describe("per-1m prices (ADR-082: 0 means unconfigured)", () => {
+  it("renders a dash instead of $0.00 for unconfigured unit prices", () => {
+    expect(formatPricePer1m(0)).toBe("—");
+    expect(formatPricePer1m(0.5)).toBe("$0.50");
+    expect(formatPricePer1m(2)).toBe("$2.00");
+    expect(formatPricePer1m(null)).toBe("—");
+    expect(formatPricePer1m(undefined)).toBe("—");
+  });
+});
+
+describe("formatRequestCost", () => {
+  it("marks a succeeded request with tokens but zero cost as unconfigured", () => {
+    expect(formatRequestCost(0, 40, false)).toBe("未配置单价");
+    expect(formatRequestCost(0.016, 40, false)).toBe("$0.016");
+    expect(formatRequestCost(null, 0, false)).toBe("—");
+  });
+
+  it("keeps the ADR-082 escape hatch: a real empty request stays $0.00", () => {
+    expect(formatRequestCost(0, 0, false)).toBe("$0.00");
+  });
+
+  it("never renders $0.00 on failed rows: zero cost is no billing data", () => {
+    expect(formatRequestCost(0, 0, true)).toBe("—");
+    expect(formatRequestCost(0, 40, true)).toBe("—");
+    expect(formatRequestCost(null, 40, true)).toBe("—");
+    expect(formatRequestCost(Number.NaN, 40, true)).toBe("—");
+    // 计到真实费用的失败请求仍显示真实值。
+    expect(formatRequestCost(0.02, 40, true)).toBe("$0.02");
   });
 });
 

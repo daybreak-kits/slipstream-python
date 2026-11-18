@@ -274,8 +274,15 @@ describe("channels list", () => {
     await user.click(screen.getByLabelText("选择 Beta"));
     await user.click(screen.getByRole("button", { name: "批量删除" }));
 
-    expect(await screen.findByText("批量删除渠道")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "确认删除" }));
+    // 危险确认统一 alertdialog 语义 + 问句标题（ui.md §2.3，CRUD-R1/R2）
+    const batchDialog = await screen.findByRole("alertdialog");
+    expect(
+      screen.getByRole("alertdialog", { name: "删除选中的 2 个渠道？" }),
+    ).toBeInTheDocument();
+    expect(batchDialog).toHaveTextContent(
+      "渠道下的模型会一并删除；任一模型被组合引用时，该渠道会被拒绝删除，其余渠道继续执行。",
+    );
+    await user.click(within(batchDialog).getByRole("button", { name: "确认删除" }));
 
     await waitFor(() => {
       const deletes = fetchMock.mock.calls
@@ -285,6 +292,40 @@ describe("channels list", () => {
         "/api/channels/CH000000000000000000000001",
         "/api/channels/CH000000000000000000000002",
       ]);
+    });
+  });
+
+  // CRUD-R1 实证：渠道删除确认此前是 role=dialog（第二套实现），必须统一为 alertdialog。
+  it("single channel delete confirm is an alertdialog with question title and cascade notice", async () => {
+    const channels = [makeChannel()];
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      return jsonResponse({ items: channels, total: 1 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderWithClient(<ChannelsPage />);
+
+    expect(await screen.findByText("Alpha")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "删除 Alpha" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(
+      screen.getByRole("alertdialog", { name: "删除渠道 Alpha？" }),
+    ).toBeInTheDocument();
+    // 级联说明原样保留（spec 用户故事 9）
+    expect(dialog).toHaveTextContent(
+      "渠道下的模型会一并删除；如果任一模型已被组合引用，删除会被拒绝，请先解除组合引用。",
+    );
+    expect(within(dialog).getByRole("button", { name: "取消" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "确认删除" }));
+
+    await waitFor(() => {
+      const deletes = fetchMock.mock.calls
+        .filter(([, init]) => init?.method === "DELETE")
+        .map(([url]) => String(url));
+      expect(deletes).toEqual(["/api/channels/CH000000000000000000000001"]);
     });
   });
 });

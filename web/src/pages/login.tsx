@@ -6,7 +6,6 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { ThemeMenu } from "@/components/layout/theme-menu";
-import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -88,20 +87,20 @@ export function LoginPage() {
           aria-hidden="true"
         />
 
-        <div className="relative z-10 flex items-center gap-3 px-12 pt-11">
-          <img src="/logo-v10-contrast.svg" alt="" aria-hidden="true" className="h-10 w-10 shrink-0" />
+        <div className="relative z-10 flex items-center gap-3.5 px-12 pt-11">
+          <img src="/logo-v10-contrast.svg" alt="" aria-hidden="true" className="h-14 w-14 shrink-0" />
           <div className="leading-tight">
-            <p className="text-sm font-semibold tracking-tight">驭流</p>
-            <p className="text-2xs tracking-[0.18em] text-white/45">SLIPSTREAM</p>
+            <p className="text-base font-semibold">驭流</p>
+            <p className="text-2xs tracking-[0.08em] text-white/45">SLIPSTREAM</p>
           </div>
         </div>
 
         <div className="relative z-10 max-w-130 px-12">
-          <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-2xs tracking-wide text-white/60">
+          <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-2xs text-white/60">
             <ShieldCheck className="h-3.5 w-3.5 text-[var(--login-teal-bright)]" strokeWidth={1.75} aria-hidden="true" />
             管理控制台 · 仅限管理员
           </p>
-          <h1 className="text-balance text-4xl font-semibold leading-[1.16] tracking-[-0.03em] text-white">
+          <h1 className="text-balance text-h1 font-semibold leading-[1.16] tracking-[-0.01em] text-white">
             把多路上游，
             <br />
             收束成一个端点。
@@ -113,7 +112,7 @@ export function LoginPage() {
           <div className="mt-10 overflow-hidden rounded-xl border border-white/10 bg-[var(--login-ink-2)] shadow-2xl shadow-black/40 backdrop-blur-sm">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
               <span className="font-mono text-2xs text-white/45">POST /v1/chat/completions</span>
-              <span className="flex items-center gap-1.5 text-2xs uppercase tracking-[0.16em] text-[var(--login-green)]">
+              <span className="flex items-center gap-1.5 text-2xs uppercase tracking-[0.08em] text-[var(--login-green)]">
                 <span className="h-1.5 w-1.5 rounded-full bg-[var(--login-green)]" />
                 live
               </span>
@@ -162,36 +161,29 @@ export function LoginPage() {
         <div className="absolute right-5 top-5 z-20">
           <ThemeMenu compact />
         </div>
-        <div className="w-full max-w-98 animate-fade-up">
+        <div className="w-full max-w-98">
           <div className="mb-9 flex items-center gap-3 lg:hidden">
-            <img src="/logo-v10-contrast.svg" alt="" aria-hidden="true" className="h-10 w-10 shrink-0" />
+            <img src="/logo-v10-contrast.svg" alt="" aria-hidden="true" className="h-12 w-12 shrink-0" />
             <div className="leading-tight">
               <p className="text-sm font-semibold text-title">驭流</p>
-              <p className="text-2xs tracking-[0.16em] text-muted-foreground">SLIPSTREAM</p>
+              <p className="text-2xs tracking-[0.08em] text-muted-foreground">SLIPSTREAM</p>
             </div>
           </div>
 
-          <p className="mb-2 text-2xs font-medium uppercase tracking-[0.18em] text-primary">Admin console</p>
-          <h1 className="text-2xl font-semibold tracking-[-0.02em] text-title">登录管理台</h1>
+          <p className="mb-2 text-2xs font-medium uppercase tracking-[0.08em] text-primary">Admin console</p>
+          <h1 className="text-h1 font-semibold tracking-[-0.01em] text-title">登录管理台</h1>
           <p className="mt-2 text-2sm text-muted-foreground">使用管理员账号登录，管理渠道、组合与系统设置。</p>
 
           <form className="mt-8 space-y-5" onSubmit={onSubmit} noValidate>
-            {formError ? <Alert variant="destructive">{formError}</Alert> : null}
-
             <Field>
               <FieldLabel htmlFor="username">用户名</FieldLabel>
               <Input
                 id="username"
                 autoComplete="username"
                 autoFocus
-                placeholder="admin"
                 aria-invalid={errors.username ? "true" : undefined}
-                aria-describedby={errors.username ? "username-error" : undefined}
+                aria-describedby={errors.username ? "login-errors" : undefined}
                 {...register("username")}
-              />
-              <FieldError
-                id="username-error"
-                errors={errors.username ? [{ message: errors.username.message }] : undefined}
               />
             </Field>
 
@@ -202,10 +194,9 @@ export function LoginPage() {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
-                  placeholder="请输入密码"
                   className="pr-11"
                   aria-invalid={errors.password ? "true" : undefined}
-                  aria-describedby={errors.password ? "password-error" : undefined}
+                  aria-describedby={errors.password ? "login-errors" : undefined}
                   {...register("password")}
                 />
                 <Button
@@ -222,11 +213,26 @@ export function LoginPage() {
                   )}
                 </Button>
               </div>
-              <FieldError
-                id="password-error"
-                errors={errors.password ? [{ message: errors.password.message }] : undefined}
-              />
             </Field>
+
+            {/* 唯一错误槽（2026-11-18 用户裁定）：只在密码框与登录按钮之间占位，其他位置不占。
+                高度按最坏一行预留，报错出现/消失全程按钮纹丝不动。 */}
+            <div className="min-h-5" aria-live="polite">
+              {formError ? (
+                <FieldError errors={[{ message: formError }]} />
+              ) : errors.username || errors.password ? (
+                <FieldError
+                  id="login-errors"
+                  errors={[
+                    {
+                      message: [errors.username?.message, errors.password?.message]
+                        .filter(Boolean)
+                        .join("、"),
+                    },
+                  ]}
+                />
+              ) : null}
+            </div>
 
             <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? (

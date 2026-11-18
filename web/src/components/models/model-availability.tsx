@@ -134,7 +134,8 @@ export function ModelAvailabilityButton({
       <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
-        title={copy.title}
+        // 危险（封禁）确认标题问句化（ui.md §2.3）；启用非破坏性，保留原题式
+        title={plan.action === "ban" ? `${copy.title} ${subject}？` : copy.title}
         description={
           <>
             <span className="block">{availabilityBody(plan, subject)}</span>

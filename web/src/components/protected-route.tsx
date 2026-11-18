@@ -1,15 +1,21 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
+import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/lib/auth";
 
 function FullPageLoader() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg" aria-busy="true">
       <div className="flex flex-col items-center gap-3">
-        <span className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-on shadow-card">
-          <span className="text-lg font-semibold tracking-tight">L</span>
-          <span className="absolute inset-0 animate-ping rounded-xl border border-primary" />
-        </span>
+        {/* 品牌位与侧栏/登录页同源（audit B5）：contrast 版 logo 固定深色底可用，不随主题反转。 */}
+        <img
+          src="/logo-v10-contrast.svg"
+          alt=""
+          aria-hidden="true"
+          className="h-11 w-11 shrink-0"
+        />
+        {/* spinner 只作视觉指示，可读文案由下方可见文本承担，避免双重播报。 */}
+        <Spinner size="lg" className="text-primary" aria-hidden="true" />
         <span className="text-2sm text-muted-foreground">正在恢复登录状态…</span>
       </div>
     </div>

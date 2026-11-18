@@ -23,9 +23,27 @@ const ACTIONS = [
   { label: "查看使用日志", to: "/logs", keywords: "请求 日志 用量" },
 ];
 
+/**
+ * 平台键位如实标注（ui.md §2.4）：Mac 显示 ⌘K，Win·Linux 显示 Ctrl K。
+ * 判定优先读 navigator.platform（"MacIntel" 等，iPad 也按 Mac 处理），缺省再回看 userAgent；
+ * 无 navigator（SSR/测试环境）按非 Mac 处理，永远不会在渲染期抛错。
+ */
+export function isApplePlatform(
+  nav: { platform?: string; userAgent?: string } | undefined = typeof navigator === "undefined"
+    ? undefined
+    : navigator,
+): boolean {
+  if (!nav) return false;
+  const platform = (nav.platform ?? "").toLowerCase();
+  if (platform) return /mac|ipad|iphone|ipod/.test(platform);
+  return /macintosh|mac os x|ipad|iphone|ipod/.test((nav.userAgent ?? "").toLowerCase());
+}
+
 export function GlobalSearch() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  // 渲染期读一次平台判定：测试里换 navigator.platform 后重渲染即可断言两种键位。
+  const shortcutHint = isApplePlatform() ? "⌘K" : "Ctrl K";
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -55,7 +73,7 @@ export function GlobalSearch() {
         <Search className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
         <span className="text-xs">搜索</span>
         <kbd className="ml-4 rounded-sm border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
-          ⌘K
+          {shortcutHint}
         </kbd>
       </Button>
       <Button

@@ -385,10 +385,11 @@ export function foldFlowNodes(
   return { nodes: foldedNodes, links: [...aggregated.values()] };
 }
 
-/** 桑基图固定高度与可读宽度下限；窄屏由外层横向滚动，不压缩节点。 */
+/** 桑基图固定高度与可读宽度下限；窄屏由外层横向滚动，不压缩节点。
+ *  宽度只设下限不设上限：画布跟随容器铺满，避免面板边框到卡片右缘之间
+ *  出现一段无内容的「假边界」（2026-11-18 用户反馈）。 */
 export const FLOW_CHART_HEIGHT = 560;
 export const FLOW_MIN_WIDTH = 900;
-export const FLOW_MAX_WIDTH = 1400;
 
 const FLOW_NODE_WIDTH = 14;
 const FLOW_PADDING_X = 24;
@@ -1218,10 +1219,12 @@ export function dashboardKpis(data: DashboardSummary | undefined): DashboardKpi[
   const estimated = data?.estimated_rows ?? 0;
   const latencySamples = data?.latency?.samples ?? 0;
   const latencyHint = latencySamples < 5 ? `样本不足（${latencySamples}/5）` : "";
+  // 卡面 hint 在 1440 宽五列合并卡里只有 ~100px，会被 truncate：文案短到截断后
+  // 头部（加权口径 + 样本数）仍完整可读；估算明细留在下方 note 与悬停弹层里。
   const cacheHint =
     estimated > 0
-      ? `token 加权 · ${samples} 条样本 · ${estimated} 条估算未计入`
-      : `token 加权 · ${samples} 条样本`;
+      ? `token 加权 · ${samples} 样本 · ${estimated} 条估算未计入`
+      : `token 加权 · ${samples} 样本`;
   // 卡面一行只放 A，hover/focus 才展开 ADR-068 的 A/B/C/D 与各自分母、样本。
   const cacheableSessions = data?.cacheable_sessions ?? 0;
   const cacheSavedUsd = data?.cache_saved_usd ?? 0;

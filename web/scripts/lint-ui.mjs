@@ -143,6 +143,36 @@ const RULES = [
     scan: regexScanner(/<input\b[^>]*?type\s*=\s*\{?\s*["']radio["']/g),
     allow: [/^src\/components\/ui\/radio-group\.tsx$/],
   },
+  {
+    // ADR-081 decision 2/5: primitive semantics (switch/tablist/tab/alertdialog/listbox/
+    // combobox) may only come from components/ui; a handwritten one outside ui/ is a second
+    // implementation. role="dialog" is intentionally NOT counted -- legitimate compositions
+    // of ui primitives outside ui/ never need it, and legacy dialog usage is out of scope.
+    // Warning-only (user ruling), no relax bucket: ui/** is excluded via allow, so every
+    // hit counts straight into the global warning budget.
+    id: "no-handrolled-primitive",
+    level: "warn",
+    why: "基元语义（switch/tablist/tab/alertdialog/listbox/combobox）只许出自 components/ui，手写即第二套实现（ADR-081 决策 2；role=\"dialog\" 不计）",
+    scan: regexScanner(/(?<![\w$-])role\s*=\s*["'](switch|tablist|tab|alertdialog|listbox|combobox)["']/g),
+    allow: [/^src\/components\/ui\//],
+  },
+  {
+    // ADR-081 decision 1/5: Radix primitives are imported only inside components/ui/.
+    id: "no-radix-outside-ui",
+    level: "warn",
+    why: "Radix 原语只允许在 components/ui/ 内 import（ADR-081 决策 1）",
+    scan: regexScanner(/from\s*["']@radix-ui/g),
+    allow: [/^src\/components\/ui\//],
+  },
+  {
+    // ui.md §2.2 动效: transitions must name their properties; transition-all is banned in
+    // app code (vendored ui/ excluded via allow).
+    id: "no-transition-all",
+    level: "warn",
+    why: "过渡必须具名（transition-colors 等），应用层禁 transition-all，vendored 除外（ADR-081 决策 5）",
+    scan: regexScanner(/\btransition-all\b/g),
+    allow: [/^src\/components\/ui\//],
+  },
 ];
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "build", "__tests__", ".git"]);

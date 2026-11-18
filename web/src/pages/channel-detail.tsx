@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -195,7 +196,7 @@ function ChannelOverview({ channel }: { channel: Channel }) {
         {stats.map((item) => (
           <Card key={item.label} className="p-4">
             <p className="text-xs text-muted-foreground">{item.label}</p>
-            <p className="mt-1.5 text-xl font-semibold tracking-[-0.02em] text-title">{item.value}</p>
+            <p className="mt-1.5 text-xl font-semibold tracking-[-0.01em] text-title">{item.value}</p>
           </Card>
         ))}
       </div>
@@ -238,9 +239,12 @@ function ChannelOverview({ channel }: { channel: Channel }) {
               <span className="text-muted-foreground">探测时间</span>
               <span className="text-body">{formatDateTime(channel.connection_tested_at, mode)}</span>
             </div>
-            <p className="break-words rounded-control bg-surface-2 px-2.5 py-2 text-2xs leading-5 text-muted-foreground">
-              {channel.connection_message || "尚无探测结果"}
-            </p>
+            {/* 空容器不渲染（ui.md §2.4）：无探测消息时不画灰条，上方三行已含状态口径。 */}
+            {channel.connection_message ? (
+              <p className="break-words rounded-control bg-surface-2 px-2.5 py-2 text-2xs leading-5 text-muted-foreground">
+                {channel.connection_message}
+              </p>
+            ) : null}
           </div>
         </Card>
       </div>
@@ -599,10 +603,11 @@ export function ChannelDetailPage() {
   const canUseAuto = isNew || channel?.protocol_source === "auto";
   const status = lastTest?.status ?? channel?.connection_status ?? "unknown";
   const latency = lastTest?.latency_ms ?? channel?.connection_latency_ms ?? null;
+  // 空消息（从未测试时 connection_message 为 ""）不渲染容器（ui.md §2.4「空容器不渲染」）。
   const message =
     lastTest?.message ??
     channel?.connection_message ??
-    (isNew ? "尚未测试。填写连接信息后可直接点击测试，无需先保存。" : "尚无探测结果");
+    (isNew ? "尚未测试。填写连接信息后可直接点击测试，无需先保存。" : "");
   const modelsPreviewList = lastTest?.models_preview ?? [];
 
   return (
@@ -614,12 +619,11 @@ export function ChannelDetailPage() {
         </Link>
       </Button>
 
-      <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="truncate text-h1 font-semibold tracking-[-0.02em] text-title">
-              {isNew ? "新建渠道" : channel?.name}
-            </h1>
+      <PageHeader
+        className="mt-2"
+        title={isNew ? "新建渠道" : (channel?.name ?? "")}
+        badge={
+          <>
             {channel ? <ConnectionStatusBadge status={channel.connection_status} /> : null}
             {isNew ? (
               <span className="rounded-badge bg-primary-soft px-2 py-0.5 text-2xs font-medium text-primary">
@@ -631,61 +635,65 @@ export function ChannelDetailPage() {
                 有未保存修改
               </span>
             ) : null}
-          </div>
-          <p className="mt-1 font-mono text-xs text-muted-foreground">
+          </>
+        }
+        description={
+          <span className="font-mono text-xs">
             {isNew
               ? "填写连接信息 → 可先测试或获取模型 → 保存"
               : `${channel?.slug} · ${PROTOCOL_LABELS[channel?.protocol ?? "openai_chat"] ?? channel?.protocol}`}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex h-10 items-center gap-2 rounded-control border border-border bg-surface px-3">
-            <span className="text-xs text-muted-foreground">启用</span>
-            <EnabledToggle
-              checked={draft.enabled}
-              disabled={toggleMutation.isPending || isNew}
-              label={`${draft.enabled ? "封禁" : "启用"} ${draft.name || "渠道"}`}
-              onChange={(next) => {
-                if (isNew) patch({ enabled: next });
-                else toggleMutation.mutate(next);
-              }}
-            />
-          </div>
-          <Button
-            variant="outline"
-            className="min-w-33 justify-center"
-            onClick={openDiscover}
-          >
-            <CloudDownload className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-            获取上游模型
-          </Button>
-          <Button
-            variant="outline"
-            className="min-w-28 justify-center"
-            onClick={runTest}
-            disabled={testMutation.isPending}
-          >
-            {testMutation.isPending ? (
-              <Spinner size="sm" label="正在测试连接" />
-            ) : (
-              <Zap className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-            )}
-            测试连接
-          </Button>
-          <Button
-            className="min-w-28 justify-center"
-            onClick={save}
-            disabled={saveMutation.isPending}
-          >
-            {saveMutation.isPending ? (
-              <Spinner size="sm" label="正在保存" />
-            ) : (
-              <Save className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-            )}
-            {isNew ? "创建渠道" : "保存"}
-          </Button>
-        </div>
-      </div>
+          </span>
+        }
+        actions={
+          <>
+            <div className="flex h-10 items-center gap-2 rounded-control border border-border bg-surface px-3">
+              <span className="text-xs text-muted-foreground">启用</span>
+              <EnabledToggle
+                checked={draft.enabled}
+                disabled={toggleMutation.isPending || isNew}
+                label={`${draft.enabled ? "封禁" : "启用"} ${draft.name || "渠道"}`}
+                onChange={(next) => {
+                  if (isNew) patch({ enabled: next });
+                  else toggleMutation.mutate(next);
+                }}
+              />
+            </div>
+            <Button
+              variant="outline"
+              className="min-w-33 justify-center"
+              onClick={openDiscover}
+            >
+              <CloudDownload className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              获取上游模型
+            </Button>
+            <Button
+              variant="outline"
+              className="min-w-28 justify-center"
+              onClick={runTest}
+              disabled={testMutation.isPending}
+            >
+              {testMutation.isPending ? (
+                <Spinner size="sm" label="正在测试连接" />
+              ) : (
+                <Zap className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              )}
+              测试连接
+            </Button>
+            <Button
+              className="min-w-28 justify-center"
+              onClick={save}
+              disabled={saveMutation.isPending}
+            >
+              {saveMutation.isPending ? (
+                <Spinner size="sm" label="正在保存" />
+              ) : (
+                <Save className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              )}
+              {isNew ? "创建渠道" : "保存"}
+            </Button>
+          </>
+        }
+      />
 
       <Tabs value={tab} onValueChange={(value) => setTab(value as TabKey)}>
         <TabsList
@@ -790,7 +798,7 @@ export function ChannelDetailPage() {
               </Field>
 
               <div className="mt-3 rounded-control border border-border bg-surface-2 px-3.5 py-3">
-                <p className="text-2xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                   最终请求地址
                 </p>
                 <p className="mt-1.5 break-all font-mono text-2xs text-title">
@@ -891,13 +899,18 @@ export function ChannelDetailPage() {
                     {lastTest ? "刚刚（未保存）" : formatDateTime(channel?.connection_tested_at, mode)}
                   </span>
                 </div>
-                <p className="mt-3 break-words rounded-control bg-surface-2 px-2.5 py-2 text-2xs leading-5 text-muted-foreground">
-                  {message}
-                </p>
+                {message ? (
+                  <p
+                    data-testid="connection-message"
+                    className="mt-3 break-words rounded-control bg-surface-2 px-2.5 py-2 text-2xs leading-5 text-muted-foreground"
+                  >
+                    {message}
+                  </p>
+                ) : null}
 
                 {modelsPreviewList.length ? (
                   <div className="mt-3">
-                    <p className="text-2xs uppercase tracking-[0.1em] text-muted-foreground">模型预览</p>
+                    <p className="text-2xs uppercase tracking-[0.08em] text-muted-foreground">模型预览</p>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {modelsPreviewList.slice(0, 8).map((model) => (
                         <span

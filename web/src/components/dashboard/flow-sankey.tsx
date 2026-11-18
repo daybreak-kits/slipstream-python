@@ -13,7 +13,6 @@ import { CATEGORY_COLORS } from "@/lib/chart-colors";
 import {
   FLOW_CHART_HEIGHT,
   FLOW_DISPLAY_LIMITS,
-  FLOW_MAX_WIDTH,
   FLOW_MIN_HIT_HEIGHT,
   FLOW_MIN_NODE_HEIGHT,
   FLOW_MIN_WIDTH,
@@ -84,7 +83,8 @@ export function FlowSankey({ data, metric }: FlowSankeyProps) {
     const observer = new ResizeObserver((entries) => {
       const measured = entries[0]?.contentRect.width ?? 0;
       if (measured <= 0) return;
-      setChartWidth(Math.round(Math.min(FLOW_MAX_WIDTH, Math.max(FLOW_MIN_WIDTH, measured))));
+      // 不设上限：画布铺满面板，边框右缘与工具行对齐（不再留假边界）。
+      setChartWidth(Math.round(Math.max(FLOW_MIN_WIDTH, measured)));
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -346,7 +346,9 @@ export function FlowSankey({ data, metric }: FlowSankeyProps) {
                   key={`${link.source}->${link.target}`}
                   d={link.path}
                   fill={flowStageColor(link.colorIndex)}
-                  fillOpacity={0.22}
+                  // 丝带透明度按主题分档（.flow-ribbon → --flow-ribbon-opacity）：
+                  // 色相仍走 16 槽色板 var(--chart-N)，浅色 0.22 与旧渲染一致。
+                  className="flow-ribbon"
                   pointerEvents="none"
                 />
               ))}

@@ -264,12 +264,14 @@ describe("models page combo marker", () => {
     renderPage();
     await screen.findByRole("table");
 
-    // 行内动作已图标化（32px 方钮）：可见文本不再占列宽，语义保留在可访问名与 Tooltip 里。
+    // 行内动作统一文字按钮（2026-11-18 用户裁定，取代此前的 32px 图标方钮）：
+    // 可见文本直接可读，可访问名仍按行指名。
     const button = screen.getByRole("button", { name: "将 channel-a/A 加入组合" });
-    expect(button.textContent?.trim()).toBe("");
-    expect(button.textContent).not.toContain("加入组合");
-    // 同组其它行内按钮同样图标化，可访问名仍按行指名
+    expect(button.textContent).toContain("加入组合");
     expect(screen.getByRole("button", { name: "封禁 channel-a/A" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制调用串 channel-a/A" }).textContent).toContain(
+      "复制",
+    );
   });
 });
 
@@ -652,7 +654,7 @@ describe("models page bulk actions", () => {
 
     const dialog = await screen.findByRole("dialog");
     // 既有排期要回填到编辑器：时区、规则行与摘要都应直接可见。
-    expect(within(dialog).getByRole("combobox", { name: "IANA 时区" })).toHaveTextContent(
+    expect(within(dialog).getByRole("button", { name: "IANA 时区" })).toHaveTextContent(
       "Asia/Shanghai",
     );
     expect(within(dialog).getByLabelText("第 1 条规则的开始时刻")).toHaveValue("10:00");
@@ -715,9 +717,8 @@ describe("models page bulk actions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "封禁 channel-a/A" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("radio", { name: "冷却（定时）" }));
-    // 切到按计划窗口：默认草稿（本地时区 + 一条每天 22:00–02:00）即可提交
-    fireEvent.click(within(dialog).getByRole("radio", { name: "按计划窗口" }));
+    // 2026-11-18 压平后是一组三个单选：直接切到冷却窗口（默认草稿即可提交）
+    fireEvent.click(within(dialog).getByRole("radio", { name: "冷却窗口" }));
     const confirm = within(dialog).getByRole("button", { name: "确认冷却" });
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
@@ -738,7 +739,7 @@ describe("models page bulk actions", () => {
     expect(body.schedule.version).toBe(2);
     expect(body.schedule.timezone).toBeTruthy();
     expect(body.schedule.rules[0]).toEqual({ kind: "daily", start: "22:00", end: "02:00" });
-    // 计划窗口不退化为单模型 PATCH（更不会写 banned_until）
+    // 冷却窗口不退化为单模型 PATCH（更不会写 banned_until）
     const single = calls.filter(
       (call) =>
         call.method === "PATCH" &&
@@ -755,8 +756,7 @@ describe("models page bulk actions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "封禁 channel-a/A" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("radio", { name: "冷却（定时）" }));
-    fireEvent.click(within(dialog).getByRole("radio", { name: "按计划窗口" }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: "冷却窗口" }));
 
     const start = within(dialog).getByLabelText("第 1 条规则的开始时刻");
     fireEvent.change(start, { target: { value: "" } });
@@ -778,7 +778,7 @@ describe("models page bulk actions", () => {
     fireEvent.click(within(toolbar).getByRole("button", { name: "冷却" }));
 
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("radio", { name: "按计划窗口" }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: "冷却窗口" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "确认冷却" }));
 
     await waitFor(() => {

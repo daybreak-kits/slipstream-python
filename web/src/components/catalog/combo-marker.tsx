@@ -8,6 +8,8 @@ import { priorityLayerText, type ComboOrigin, type PriorityLayerText } from "@/l
  *
  * 只画图标（手动组合 = Layers，自动组合 = Wand2），两种类型靠形状区分而不是颜色——
  * 颜色统一 --muted-foreground，色弱用户与明暗两套主题都不会翻车。
+ * 豁免说明（ui.md §2.4 AI 装饰图标禁令）：Wand2 是「自动组合」的类型区分功能图标，
+ * 标记真实来源状态而非装饰，保留。
  * 类型文字全部进 tooltip，触发元素保留 aria-label 与 title 兜底。
  * tooltip 里成员逐行列出（P 前缀保留），不再一行挤「P50 a / P40 b」也不省略；
  * 成员多时列表内部滚动（max-h-40 + overflow-y-auto），tooltip 本身不走 3 行截断。
