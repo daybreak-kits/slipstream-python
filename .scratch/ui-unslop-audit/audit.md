@@ -26,7 +26,7 @@
 
 - **B5 加载屏占位 logo**（`protected-route.tsx:5-17`，每次硬刷新可见）：裸字母 "L" + 无限 `animate-ping` 光圈；正式 logo `/logo-v10-contrast.svg` 侧栏在用却没被用上。
 - **B6 问候语标题**（`dashboard.tsx:459`）：「欢迎回来，{username}。」——用户名在右上角头像已有，标题应直接以时间范围开头。
-- **B7 登录页光斑**（`login.tsx:82-89`）：`blur-[120px]` 靛 + `blur-[100px]` 青两个径向色斑，纯装饰；蓝图网格 + 路由追踪卡才是主体。
+- **B7 登录页光斑**（`login.tsx:82-89`）：~~已删除~~ **2026-11-18 用户裁定恢复**——两团流光是页面的记忆点而非噪音，随票 10 复拍后用户要求还原；已原样恢复（含两个 CSS 变量），测试断言同步翻转。
 - **B8 过渡失准**（`overview.tsx:384`）：`transition-all` + 悬停 translate 箭头 → 应 `transition-[transform,color]`。
 
 ## C 类：文案与一致性

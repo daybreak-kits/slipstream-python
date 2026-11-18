@@ -47,12 +47,14 @@ describe("login page craft (audit B7/C11/N2)", () => {
     localStorage.clear();
   });
 
-  it("keeps the blueprint grid as the only backdrop and drops the decorative blur blobs", () => {
+  it("keeps the blueprint grid plus the two ambient accent glows as the backdrop", () => {
     const { container } = renderLogin();
 
     expect(container.querySelector(".bg-blueprint")).not.toBeNull();
-    expect(container.innerHTML).not.toContain("blur-[120px]");
-    expect(container.innerHTML).not.toContain("blur-[100px]");
+    expect(container.innerHTML).toContain("blur-[120px]");
+    expect(container.innerHTML).toContain("blur-[100px]");
+    expect(container.innerHTML).toContain("bg-[var(--login-accent)]");
+    expect(container.innerHTML).toContain("bg-[var(--login-teal)]");
   });
 
   it("renders both headings on the text-h1 scale with canonical tracking", () => {

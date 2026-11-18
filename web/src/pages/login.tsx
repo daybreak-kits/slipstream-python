@@ -79,11 +79,19 @@ export function LoginPage() {
     <div className="grid min-h-screen bg-bg lg:grid-cols-[1.02fr_1fr]">
       <aside className="relative hidden overflow-hidden bg-[var(--login-ink)] text-white lg:flex lg:flex-col lg:justify-between">
         <div className="absolute inset-0 bg-blueprint opacity-70" aria-hidden="true" />
+        <div
+          className="absolute -left-32 top-1/3 h-130 w-130 rounded-full bg-[var(--login-accent)] blur-[120px]"
+          aria-hidden="true"
+        />
+        <div
+          className="absolute -right-24 bottom-0 h-90 w-90 rounded-full bg-[var(--login-teal)] blur-[100px]"
+          aria-hidden="true"
+        />
 
-        <div className="relative z-10 flex items-center gap-3 px-12 pt-11">
-          <img src="/logo-v10-contrast.svg" alt="" aria-hidden="true" className="h-10 w-10 shrink-0" />
+        <div className="relative z-10 flex items-center gap-3.5 px-12 pt-11">
+          <img src="/logo-v10-contrast.svg" alt="" aria-hidden="true" className="h-14 w-14 shrink-0" />
           <div className="leading-tight">
-            <p className="text-sm font-semibold">驭流</p>
+            <p className="text-base font-semibold">驭流</p>
             <p className="text-2xs tracking-[0.08em] text-white/45">SLIPSTREAM</p>
           </div>
         </div>
@@ -156,7 +164,7 @@ export function LoginPage() {
         </div>
         <div className="w-full max-w-98">
           <div className="mb-9 flex items-center gap-3 lg:hidden">
-            <img src="/logo-v10-contrast.svg" alt="" aria-hidden="true" className="h-10 w-10 shrink-0" />
+            <img src="/logo-v10-contrast.svg" alt="" aria-hidden="true" className="h-12 w-12 shrink-0" />
             <div className="leading-tight">
               <p className="text-sm font-semibold text-title">驭流</p>
               <p className="text-2xs tracking-[0.08em] text-muted-foreground">SLIPSTREAM</p>

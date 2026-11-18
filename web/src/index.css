@@ -184,6 +184,8 @@
   /* Login page: fixed deep-navy palette, intentionally theme-independent. */
   --login-ink: #0b1020;
   --login-ink-2: #0e1526;
+  --login-accent: #4f46e5;
+  --login-teal: #14b8a6;
   --login-teal-bright: #2dd4bf;
   --login-green: #4ade80;
   --login-amber: #fbbf24;
