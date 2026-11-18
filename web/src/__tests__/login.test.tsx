@@ -36,8 +36,10 @@ describe("login form", () => {
     renderLogin();
     await user.click(screen.getByRole("button", { name: "登录" }));
 
-    expect(await screen.findByText("请输入用户名")).toBeInTheDocument();
-    expect(await screen.findByText("请输入密码")).toBeInTheDocument();
+    // 两个校验消息合并在登录按钮前的唯一错误槽里，单行展示
+    const slot = await screen.findByText(/请输入用户名/);
+    expect(slot).toHaveTextContent("请输入用户名");
+    expect(slot).toHaveTextContent("请输入密码");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -91,12 +93,25 @@ describe("login page craft (audit B7/C11/N2)", () => {
     expect(container.innerHTML).not.toContain("tracking-[0.16em]");
   });
 
-  it("keeps the password placeholder terse and non-instructional", () => {
+  it("leaves both inputs placeholder-free so empty fields never read as filled", () => {
+    // 2026-11-18 用户裁定：密码框的点串占位会被当成已输入的密码，诱导直接点登录。
     renderLogin();
 
-    const password = screen.getByLabelText("密码");
-    expect(password).toHaveAttribute("placeholder", "••••••••");
-    expect(screen.queryByPlaceholderText("请输入密码")).toBeNull();
+    expect(screen.getByLabelText("密码")).not.toHaveAttribute("placeholder");
+    expect(screen.getByLabelText("用户名")).not.toHaveAttribute("placeholder");
+  });
+
+  it("reserves the single error slot before the button so it never shifts", () => {
+    // 2026-11-18 用户裁定（二次收敛）：多点占位太空旷，只在密码框与登录按钮之间
+    // 保留一个最坏一行高的错误槽；顶部与字段旁不再占位。
+    const { container } = renderLogin();
+
+    expect(container.querySelectorAll(".min-h-5")).toHaveLength(1);
+    expect(container.querySelector(".min-h-12")).toBeNull();
+    // 错误槽在登录按钮之前
+    const slot = container.querySelector(".min-h-5")!;
+    const button = screen.getByRole("button", { name: "登录" });
+    expect(slot.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("focuses the username input on first paint with no entrance animation on the card", () => {

@@ -6,7 +6,6 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { ThemeMenu } from "@/components/layout/theme-menu";
-import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -176,22 +175,15 @@ export function LoginPage() {
           <p className="mt-2 text-2sm text-muted-foreground">使用管理员账号登录，管理渠道、组合与系统设置。</p>
 
           <form className="mt-8 space-y-5" onSubmit={onSubmit} noValidate>
-            {formError ? <Alert variant="destructive">{formError}</Alert> : null}
-
             <Field>
               <FieldLabel htmlFor="username">用户名</FieldLabel>
               <Input
                 id="username"
                 autoComplete="username"
                 autoFocus
-                placeholder="admin"
                 aria-invalid={errors.username ? "true" : undefined}
-                aria-describedby={errors.username ? "username-error" : undefined}
+                aria-describedby={errors.username ? "login-errors" : undefined}
                 {...register("username")}
-              />
-              <FieldError
-                id="username-error"
-                errors={errors.username ? [{ message: errors.username.message }] : undefined}
               />
             </Field>
 
@@ -202,10 +194,9 @@ export function LoginPage() {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
-                  placeholder="••••••••"
                   className="pr-11"
                   aria-invalid={errors.password ? "true" : undefined}
-                  aria-describedby={errors.password ? "password-error" : undefined}
+                  aria-describedby={errors.password ? "login-errors" : undefined}
                   {...register("password")}
                 />
                 <Button
@@ -222,11 +213,26 @@ export function LoginPage() {
                   )}
                 </Button>
               </div>
-              <FieldError
-                id="password-error"
-                errors={errors.password ? [{ message: errors.password.message }] : undefined}
-              />
             </Field>
+
+            {/* 唯一错误槽（2026-11-18 用户裁定）：只在密码框与登录按钮之间占位，其他位置不占。
+                高度按最坏一行预留，报错出现/消失全程按钮纹丝不动。 */}
+            <div className="min-h-5" aria-live="polite">
+              {formError ? (
+                <FieldError errors={[{ message: formError }]} />
+              ) : errors.username || errors.password ? (
+                <FieldError
+                  id="login-errors"
+                  errors={[
+                    {
+                      message: [errors.username?.message, errors.password?.message]
+                        .filter(Boolean)
+                        .join("、"),
+                    },
+                  ]}
+                />
+              ) : null}
+            </div>
 
             <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? (
