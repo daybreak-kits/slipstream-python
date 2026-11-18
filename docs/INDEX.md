@@ -14,6 +14,7 @@
 - **GLOSSARY.md** — 术语表
 
 ## 专项
+- **data_plane_pipeline.md** — 数据面全链路简报（用户→网关→上游→网关→用户完整流程、处理逻辑、当前问题清单、已排除方案——外部咨询/新人上手用）
 - **upstream_transport.md** — 上游传输与 SSE 消费机制正文
 - **upstream-reasoning.md** — 上游 reasoning/thinking 接入实测（协议差异与证据，配套 ssot §5.4/§9.3）
 - **ui.md** — 前端技术栈/规范/采纳状态提炼合并版（原 ui-standards、ui-adoption-map、ui-stack、design-system 四篇的精华，原文在开发仓）
