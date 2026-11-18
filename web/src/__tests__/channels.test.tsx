@@ -125,14 +125,9 @@ describe("channels list", () => {
     expect(within(table).getByText("Anthropic")).toBeInTheDocument();
     expect(screen.getByText("共 2 个渠道")).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "封禁 Alpha" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: "启用 Beta" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
+    // 行内启停改为文字按钮后（ui.md §2.4），状态由可访问名与语义色表达，不再有 aria-pressed
+    expect(screen.getByRole("button", { name: "封禁 Alpha" })).toHaveClass("text-danger-text");
+    expect(screen.getByRole("button", { name: "启用 Beta" })).toHaveClass("text-success-text");
     expect(screen.getByLabelText("全选渠道")).not.toBeChecked();
     expect(screen.getByLabelText("选择 Alpha")).not.toBeChecked();
   });

@@ -1,12 +1,12 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Ban,
+  CheckCircle2,
   Gauge,
   KeyRound,
   Network,
   Pencil,
   Plus,
-  Power,
-  PowerOff,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -506,27 +506,23 @@ export function ChannelsPage() {
                       </TableCell>
                       <TableCell className="px-4 py-2">
                         <div className="flex items-center justify-end gap-0.5">
+                          {/* 行内动作统一文字按钮，语义色按动作：封禁红 / 启用绿（ui.md §2.4，对齐 keys 行口径） */}
                           <Button
                             variant="ghost"
                             size="sm"
-                            className={cn(
-                              "w-8 px-0",
-                              channel.enabled
-                                ? "text-success-text hover:bg-success-soft hover:text-success-text"
-                                : "text-danger-text hover:bg-danger-soft hover:text-danger-text",
-                            )}
+                            className={channel.enabled ? "text-danger-text" : "text-success-text"}
                             aria-label={(channel.enabled ? "封禁 " : "启用 ") + channel.name}
-                            aria-pressed={channel.enabled}
                             disabled={toggling}
                             onClick={() =>
                               toggleMutation.mutate({ id: channel.id, enabled: !channel.enabled })
                             }
                           >
                             {channel.enabled ? (
-                              <Power className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                              <Ban className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
                             ) : (
-                              <PowerOff className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                              <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
                             )}
+                            {channel.enabled ? "封禁" : "启用"}
                           </Button>
                           <TooltipProvider>
                             <Tooltip>
@@ -534,11 +530,11 @@ export function ChannelsPage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="w-8 px-0"
                                   aria-label={"测试连接 " + channel.name}
                                   onClick={() => navigate("/channels/" + channel.id + "?tab=routing")}
                                 >
                                   <Gauge className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                                  测试连接
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>打开路由与映射</TooltipContent>
@@ -548,23 +544,25 @@ export function ChannelsPage() {
                             asChild
                             variant="ghost"
                             size="sm"
-                            className="w-8 px-0"
                             aria-label={"编辑 " + channel.name}
                           >
                             <Link to={"/channels/" + channel.id}>
                               <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                              编辑
                             </Link>
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="w-8 px-0 text-danger-text hover:bg-danger-soft hover:text-danger-text"
+                            // 危险前景统一 --danger-text（ui.md §2.3 / §2.4）
+                            className="text-danger-text"
                             aria-label={"删除 " + channel.name}
                             onClick={() => {
                               setDeleting(channel);
                             }}
                           >
                             <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                            删除
                           </Button>
                         </div>
                       </TableCell>

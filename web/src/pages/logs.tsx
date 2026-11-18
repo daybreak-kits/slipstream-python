@@ -23,9 +23,10 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 
 import { type IconTone } from "@/components/ui/icon-badge";
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { LatencyValue } from "@/components/logs/latency-value";
 import { LogDetailDrawer } from "@/components/logs/log-detail-drawer";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -79,6 +80,7 @@ import {
   logQueryToParams,
   parseAppliedQuery,
   listLogs,
+  requestCostLabel,
   rewriteSkippedLabel,
   sourceLabel,
   statusLabel,
@@ -101,14 +103,10 @@ import {
   formatCompact,
   formatCount,
   formatPercent,
-  formatRequestCost,
 } from "@/lib/format";
 import {
   formatLatency,
-  isLatencyMissing,
   latencyBarClass,
-  latencyTextClass,
-  latencyDescription,
   latencyTone,
   type LatencyKind,
 } from "@/lib/latency";
@@ -322,6 +320,68 @@ function AttemptItem({ attempt, index }: { attempt: LogAttempt; index: number })
 }
 
 /**
+ * 路由链触发按钮：逐次请求行与聚合下钻面板共用同一份渲染
+ * （模型 / 渠道两行 + 来源徽标 + 转移提示），保证两处行为与样式一致。
+ * 作为 PopoverTrigger asChild 的子元素，需转发 Radix 注入的 ref 与事件。
+ */
+function RouteTriggerButton({ log, pathOpen, onClick, ...rest }: ComponentProps<"button"> & {
+  log: RequestLog;
+  pathOpen: boolean;
+}) {
+  const attempts = log.attempts ?? [];
+  const hasFailover = attempts.length > 1 || attempts.some((attempt) => attempt.status === "skipped");
+  const responseMismatch = Boolean(
+    log.response_model && log.upstream_model && log.response_model !== log.upstream_model,
+  );
+  return (
+    <button
+      type="button"
+      aria-label={pathOpen ? "收起路由链" : "展开路由链"}
+      className="block w-full text-left"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick?.(event);
+      }}
+      {...rest}
+    >
+      <div
+        className="flex min-w-0 items-center gap-1 text-xs font-medium text-title hover:text-primary"
+        title={log.requested_model}
+      >
+        <span className="truncate">{log.requested_model || "—"}</span>
+        {responseMismatch ? (
+          <AlertTriangle
+            className="h-3 w-3 shrink-0 text-warning-text"
+            strokeWidth={1.75}
+            aria-label={`上游返回模型 ${log.response_model} 与配置不一致`}
+          />
+        ) : null}
+      </div>
+      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
+        <span className="truncate">
+          {log.channel_name || "—"} / {log.upstream_model || "—"}
+        </span>
+        <span
+          className="shrink-0 rounded-badge border border-border px-1 text-2xs text-muted-foreground"
+          title={`来源：${sourceLabel(log.source)}`}
+        >
+          {sourceLabel(log.source)}
+        </span>
+        {hasFailover ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-0.5 text-warning-text"
+            title="发生转移"
+          >
+            <GitFork className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
+            {attempts.length} 次尝试
+          </span>
+        ) : null}
+      </div>
+    </button>
+  );
+}
+
+/**
  * 路由链浮层：Radix Popover 接管开关/定位/焦点（Escape 与外点关闭、关闭后焦点归还），
  * 触发按钮由调用方以 `trigger` 传入（PopoverTrigger asChild）。
  */
@@ -351,7 +411,7 @@ function RoutePopover({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-2xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">路由链</p>
+            <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">路由链</p>
             <p className="mt-1 truncate text-xs font-medium text-title" title={log.requested_model}>
               {log.requested_model || "—"}
               {log.response_model ? (
@@ -386,53 +446,6 @@ function RoutePopover({
         )}
       </PopoverContent>
     </Popover>
-  );
-}
-
-function LatencyValue({
-  label,
-  value,
-  kind,
-  emptyHint,
-  failed = false,
-}: {
-  label: string;
-  value: number | null | undefined;
-  kind: LatencyKind;
-  emptyHint?: string;
-  failed?: boolean;
-}) {
-  // 失败请求没有「仅推理」可言：输出前就失败了，首字/首答的 0/null 都是「从未发生」。
-  const hint = failed ? undefined : emptyHint;
-  const showEmptyHint = value == null && Boolean(hint);
-  // 总耗时 0 表示上游没有回报；失败请求的首字/首答 0 = 从未发生——
-  // 都按无数据处理，不渲染 0.00s（ADR-082 同族口径）。
-  const missing = isLatencyMissing(value, kind, failed);
-  // 无数据的可访问名用全称（总耗时），行内短标签「总」只用于视觉。
-  const missingLabel = kind === "total" ? "总耗时" : label;
-  return (
-    <span
-      className="flex items-baseline gap-1.5 whitespace-nowrap"
-      title={
-        showEmptyHint
-          ? hint
-          : missing
-            ? `${missingLabel}无数据`
-            : `${label} ${formatDuration(value)}`
-      }
-      aria-label={showEmptyHint ? hint : missing ? `${missingLabel}无数据` : latencyDescription(value, kind)}
-    >
-      <span className="w-7 shrink-0 text-2xs text-muted-foreground">{label}</span>
-      {showEmptyHint ? (
-        <span className="text-2xs text-muted-foreground">仅推理</span>
-      ) : missing ? (
-        <span className="text-2xs text-muted-foreground" title={`${missingLabel}无数据`}>—</span>
-      ) : (
-        <span className={cn("tabular-nums text-xs font-medium", latencyTextClass(latencyTone(value, kind)))}>
-          {formatLatency(value)}
-        </span>
-      )}
-    </span>
   );
 }
 
@@ -589,14 +602,7 @@ function InlineLogSummary({ log, hideSensitive }: { log: RequestLog; hideSensiti
             className="tabular-nums text-title"
             title={hideSensitive ? "敏感信息已隐藏" : undefined}
           >
-            {maskValue(
-              formatRequestCost(
-                log.cost_usd,
-                log.prompt_tokens + log.completion_tokens + log.cached_tokens,
-                isErrorLog(log),
-              ),
-              hideSensitive,
-            )}
+            {maskValue(requestCostLabel(log), hideSensitive)}
           </dd>
         </div>
         <div>
@@ -683,12 +689,7 @@ function RequestLogRow({
   onOpenDetail: () => void;
 }) {
   const time = formatDateTimeParts(log.created_at, mode);
-  const responseMismatch = Boolean(
-    log.response_model && log.upstream_model && log.response_model !== log.upstream_model,
-  );
   const { toggle } = useTimezone();
-  const attempts = log.attempts ?? [];
-  const hasFailover = attempts.length > 1 || attempts.some((attempt) => attempt.status === "skipped");
   return (
     <Fragment>
       <TableRow
@@ -748,48 +749,7 @@ function RequestLogRow({
             onOpenChange={(next) => {
               if (next !== pathOpen) onTogglePath();
             }}
-            trigger={
-              <button
-                type="button"
-                aria-label={pathOpen ? "收起路由链" : "展开路由链"}
-                className="block w-full text-left"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div
-                  className="flex min-w-0 items-center gap-1 text-xs font-medium text-title hover:text-primary"
-                  title={log.requested_model}
-                >
-                  <span className="truncate">{log.requested_model || "—"}</span>
-                  {responseMismatch ? (
-                    <AlertTriangle
-                      className="h-3 w-3 shrink-0 text-warning-text"
-                      strokeWidth={1.75}
-                      aria-label={`上游返回模型 ${log.response_model} 与配置不一致`}
-                    />
-                  ) : null}
-                </div>
-                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
-                  <span className="truncate">
-                    {log.channel_name || "—"} / {log.upstream_model || "—"}
-                  </span>
-                  <span
-                    className="shrink-0 rounded-badge border border-border px-1 text-2xs text-muted-foreground"
-                    title={`来源：${sourceLabel(log.source)}`}
-                  >
-                    {sourceLabel(log.source)}
-                  </span>
-                  {hasFailover ? (
-                    <span
-                      className="inline-flex shrink-0 items-center gap-0.5 text-warning-text"
-                      title="发生转移"
-                    >
-                      <GitFork className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
-                      {attempts.length} 次尝试
-                    </span>
-                  ) : null}
-                </div>
-              </button>
-            }
+            trigger={<RouteTriggerButton log={log} pathOpen={pathOpen} />}
           />
         </TableCell>
         <TableCell
@@ -822,14 +782,7 @@ function RequestLogRow({
           className="whitespace-nowrap px-3 py-2 text-xs tabular-nums text-title"
           title={hideSensitive ? "敏感信息已隐藏" : undefined}
         >
-          {maskValue(
-            formatRequestCost(
-              log.cost_usd,
-              log.prompt_tokens + log.completion_tokens + log.cached_tokens,
-              isErrorLog(log),
-            ),
-            hideSensitive,
-          )}
+          {maskValue(requestCostLabel(log), hideSensitive)}
         </TableCell>
         <TableCell className="px-3 py-2">
           <LatencyCell log={log} />
@@ -950,14 +903,7 @@ function AggregateLogRow({
   onToggle: () => void;
 }) {
   // 聚合组里有失败请求且费用为 0 时，同样不渲染 $0.00（失败行口径）。
-  const cost = maskValue(
-    formatRequestCost(
-      group.cost_usd,
-      group.prompt_tokens + group.completion_tokens + group.cached_tokens,
-      isErrorGroup(group),
-    ),
-    hideSensitive,
-  );
+  const cost = maskValue(requestCostLabel(group), hideSensitive);
   return (
     <TableRow
       data-testid={`log-group-row-${group.key}`}
@@ -1893,14 +1839,8 @@ export function LogsPage() {
                 <TableBody className="leading-tight">
                   {items.map((log) => {
                     const time = formatDateTimeParts(log.created_at, mode);
-                    const responseMismatch = Boolean(
-                      log.response_model && log.upstream_model && log.response_model !== log.upstream_model,
-                    );
                     const expanded = expandedId === log.id;
                     const pathOpen = pathOpenId === log.id;
-                    const attempts = log.attempts ?? [];
-                    const hasFailover =
-                      attempts.length > 1 || attempts.some((attempt) => attempt.status === "skipped");
                     return (
                       <Fragment key={log.id}>
                         <TableRow
@@ -1958,48 +1898,7 @@ export function LogsPage() {
                               log={log}
                               open={pathOpen}
                               onOpenChange={(next) => setPathOpenId(next ? log.id : null)}
-                              trigger={
-                                <button
-                                  type="button"
-                                  aria-label={pathOpen ? "收起路由链" : "展开路由链"}
-                                  className="block w-full text-left"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  <div
-                                    className="flex min-w-0 items-center gap-1 text-xs font-medium text-title hover:text-primary"
-                                    title={log.requested_model}
-                                  >
-                                    <span className="truncate">{log.requested_model || "—"}</span>
-                                    {responseMismatch ? (
-                                      <AlertTriangle
-                                        className="h-3 w-3 shrink-0 text-warning-text"
-                                        strokeWidth={1.75}
-                                        aria-label={`上游返回模型 ${log.response_model} 与配置不一致`}
-                                      />
-                                    ) : null}
-                                  </div>
-                                  <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
-                                    <span className="truncate">
-                                      {log.channel_name || "—"} / {log.upstream_model || "—"}
-                                    </span>
-                                    <span
-                                      className="shrink-0 rounded-badge border border-border px-1 text-2xs text-muted-foreground"
-                                      title={`来源：${sourceLabel(log.source)}`}
-                                    >
-                                      {sourceLabel(log.source)}
-                                    </span>
-                                    {hasFailover ? (
-                                      <span
-                                        className="inline-flex shrink-0 items-center gap-0.5 text-warning-text"
-                                        title="发生转移"
-                                      >
-                                        <GitFork className="h-3 w-3" strokeWidth={1.75} aria-hidden="true" />
-                                        {attempts.length} 次尝试
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                </button>
-                              }
+                              trigger={<RouteTriggerButton log={log} pathOpen={pathOpen} />}
                             />
                           </TableCell>
                           <TableCell
@@ -2032,14 +1931,7 @@ export function LogsPage() {
                             className="whitespace-nowrap px-3 py-2 text-xs tabular-nums text-title"
                             title={hideSensitive ? "敏感信息已隐藏" : undefined}
                           >
-                            {maskValue(
-              formatRequestCost(
-                log.cost_usd,
-                log.prompt_tokens + log.completion_tokens + log.cached_tokens,
-                isErrorLog(log),
-              ),
-              hideSensitive,
-            )}
+                            {maskValue(requestCostLabel(log), hideSensitive)}
                           </TableCell>
                           <TableCell className="px-3 py-2">
                             <LatencyCell log={log} />

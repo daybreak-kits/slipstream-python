@@ -707,13 +707,16 @@ export function ComboEditorDialog({
                   </Select>
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="sm"
+                    // 行内破坏性动作统一文字按钮 + --danger-text 前景（ui.md §2.4）
+                    className="text-danger-text"
                     aria-label={`移除规则 ${index + 1}`}
                     onClick={() =>
                       setRules((current) => current.filter((item) => item.key !== rule.key))
                     }
                   >
-                    <Trash2 className="h-4 w-4 text-danger" strokeWidth={1.75} aria-hidden="true" />
+                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                    移除
                   </Button>
                 </div>
               ))}
@@ -915,12 +918,14 @@ export function ComboEditorDialog({
 
                         <Button
                           variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
+                          size="sm"
+                          // 行内破坏性动作统一文字按钮 + --danger-text 前景（ui.md §2.4）
+                          className="text-danger-text"
                           aria-label={`移除成员 ${index + 1}`}
                           onClick={() => removeMember(member.key)}
                         >
-                          <Trash2 className="h-3.5 w-3.5 text-danger" strokeWidth={1.75} aria-hidden="true" />
+                          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                          移除
                         </Button>
 
                         {isDropTarget && draggingMember ? (

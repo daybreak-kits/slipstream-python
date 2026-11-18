@@ -5,6 +5,7 @@ import {
   formatCompact,
   formatCostOrUnconfigured,
   formatRate,
+  formatRequestCost,
   formatSpanMinutes,
 } from "@/lib/format";
 import { TIME_RANGE_OPTIONS, type TimeRange } from "@/lib/time-range";
@@ -506,6 +507,23 @@ export function statusLabel(log: Pick<RequestLog, "http_status" | "error_code">)
 
 export function isErrorLog(log: Pick<RequestLog, "http_status">): boolean {
   return log.http_status >= 400;
+}
+
+/**
+ * 费用位的单一口径：词元合计（输入 + 输出 + 缓存）与失败判定都收拢在这里，
+ * 请求行、聚合组与详情抽屉共用。失败行的费用没有计费数据可言，
+ * 显示「—」不渲染 $0.00（ADR-082 同族口径）；请求行按 http_status 判失败，
+ * 聚合组按 errors / error_codes 判失败。
+ */
+export function requestCostLabel(
+  log:
+    | Pick<RequestLog, "cost_usd" | "prompt_tokens" | "completion_tokens" | "cached_tokens" | "http_status">
+    | Pick<LogGroup, "cost_usd" | "prompt_tokens" | "completion_tokens" | "cached_tokens" | "status_code" | "errors" | "error_codes">,
+): string {
+  const tokens = log.prompt_tokens + log.completion_tokens + log.cached_tokens;
+  return "http_status" in log
+    ? formatRequestCost(log.cost_usd, tokens, isErrorLog(log))
+    : formatRequestCost(log.cost_usd, tokens, isErrorGroup(log));
 }
 
 /** 请求内部的失败尝试（不含 stopped/skipped）。 */

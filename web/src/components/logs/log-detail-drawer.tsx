@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, ChevronRight, RefreshCw, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { LatencyMissingText } from "@/components/logs/latency-value";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -19,6 +20,7 @@ import {
   formatThroughput,
   getLog,
   isErrorLog,
+  requestCostLabel,
   rewriteSkippedLabel,
   sourceLabel,
   TTFA_NO_CONTENT_LABEL,
@@ -26,7 +28,6 @@ import {
   type LogAttempt,
   type RequestLog,
 } from "@/lib/logs";
-import { formatRequestCost } from "@/lib/format";
 import {
   formatLatency,
   isLatencyMissing,
@@ -382,19 +383,13 @@ function DrawerBody({ log, hideSensitive }: { log: RequestLog; hideSensitive: bo
           <Field label="缓存比例">{formatCachePercent(log.cache_ratio)}</Field>
           <Field label="费用">
             <span title={hideSensitive ? "敏感信息已隐藏" : undefined}>
-              {hideSensitive
-                ? MASKED_VALUE
-                : formatRequestCost(
-                    log.cost_usd,
-                    log.prompt_tokens + log.completion_tokens + log.cached_tokens,
-                    isErrorLog(log),
-                  )}
+              {hideSensitive ? MASKED_VALUE : requestCostLabel(log)}
             </span>
           </Field>
           <Field label="吞吐">{formatThroughput(log.throughput_tps)}</Field>
           <Field label="首字耗时">
             {isLatencyMissing(log.ttft_ms, "ttft", isErrorLog(log)) ? (
-              <span className="text-2xs text-muted-foreground" title="首字无数据">—</span>
+              <LatencyMissingText label="首字" />
             ) : (
               <span title={latencyDescription(log.ttft_ms, "ttft")}>{formatLatency(log.ttft_ms)}</span>
             )}
@@ -403,14 +398,14 @@ function DrawerBody({ log, hideSensitive }: { log: RequestLog; hideSensitive: bo
             {!isErrorLog(log) && ttfaMissing(log) ? (
               <span className="text-2xs text-muted-foreground">{TTFA_NO_CONTENT_LABEL}</span>
             ) : isLatencyMissing(log.ttfa_ms, "ttfa", isErrorLog(log)) ? (
-              <span className="text-2xs text-muted-foreground" title="首答无数据">—</span>
+              <LatencyMissingText label="首答" />
             ) : (
               <span title={latencyDescription(log.ttfa_ms, "ttfa")}>{formatLatency(log.ttfa_ms)}</span>
             )}
           </Field>
           <Field label="总耗时">
             {isLatencyMissing(log.total_ms, "total") ? (
-              <span className="text-2xs text-muted-foreground" title="总耗时无数据">—</span>
+              <LatencyMissingText label="总耗时" />
             ) : (
               <span title={latencyDescription(log.total_ms, "total")}>{formatLatency(log.total_ms)}</span>
             )}

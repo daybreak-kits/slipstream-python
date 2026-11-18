@@ -87,7 +87,7 @@ export function LoginPage() {
           aria-hidden="true"
         />
 
-        <div className="relative z-10 flex items-center gap-3.5 px-12 pt-11">
+        <div className="relative z-10 flex items-center gap-3 px-12 pt-11">
           <img src="/logo-v10-contrast.svg" alt="" aria-hidden="true" className="h-14 w-14 shrink-0" />
           <div className="leading-tight">
             <p className="text-base font-semibold">驭流</p>
