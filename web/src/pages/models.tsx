@@ -132,7 +132,7 @@ function TruncatedName({ text }: { text: string }) {
   );
 }
 
-/** 复制调用串：成功给出对勾，失败走通知（不静默）。 */
+/** 复制调用串：成功给出对勾，失败走通知（不静默）。行内操作统一文字按钮（2026-11-18 用户裁定）。 */
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -147,15 +147,20 @@ function CopyButton({ value }: { value: string }) {
   return (
     <Button
       variant="ghost"
-      size="icon"
-      className="h-8 w-8"
+      size="sm"
       aria-label={"复制调用串 " + value}
       onClick={() => void copy()}
     >
       {copied ? (
-        <Check className="h-3.5 w-3.5 text-success-text" aria-hidden="true" />
+        <>
+          <Check className="h-3.5 w-3.5 text-success-text" strokeWidth={1.75} aria-hidden="true" />
+          已复制
+        </>
       ) : (
-        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+        <>
+          <Copy className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+          复制
+        </>
       )}
     </Button>
   );
@@ -195,7 +200,7 @@ export function CombosRedirect() {
 /**
  * 模型管理：直连、手动组合、自动组合统一到一页。
  * 类型筛选由 ?kind= 驱动（旧书签 /combos 与 ?tab=combos 都会落到组合），
- * 行内操作按类型分流：直连 复制/组合/封禁·启用；手动组合 编辑/删除；自动组合只读。
+ * 行内操作按类型分流，统一文字按钮：直连 复制/加入组合/编辑/封禁·启用；手动组合 编辑/删除；自动组合只读。
  */
 export function ModelsPage() {
   const queryClient = useQueryClient();
@@ -474,7 +479,7 @@ export function ModelsPage() {
   const availabilityPending = (id: string): boolean =>
     availabilityMutation.isPending && availabilityMutation.variables?.id === id;
 
-  // 冷却（持续时间 / 计划窗口）统一走批量端点 op=cooldown / op=schedule；
+  // 冷却（定时冷却 / 冷却窗口）统一走批量端点 op=cooldown / op=schedule；
   // 批量端点未落地时 applyModelAvailabilityBulk 会按操作退化（排期不退化，直接报错）。
   const measureMutation = useMutation({
     mutationFn: async (input: { id: string; submit: CooldownSubmit }) => {
@@ -1113,38 +1118,24 @@ export function ModelsPage() {
                           <CopyButton value={entry.name} />
                           {entry.kind === "direct" ? (
                             <>
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8"
-                                      aria-label={"将 " + entry.name + " 加入组合"}
-                                      onClick={() => openAddMember(entry.id)}
-                                    >
-                                      <Plus className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>加入组合</TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8"
-                                      aria-label={"编辑 " + entry.name}
-                                      onClick={() => setEditTarget(entry)}
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>编辑</TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={"将 " + entry.name + " 加入组合"}
+                                onClick={() => openAddMember(entry.id)}
+                              >
+                                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                                加入组合
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={"编辑 " + entry.name}
+                                onClick={() => setEditTarget(entry)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                                编辑
+                              </Button>
                               <AvailabilityControl
                                 subject={entry.name}
                                 enabled={entry.enabled}
@@ -1171,111 +1162,70 @@ export function ModelsPage() {
                                   });
                                 }}
                               />
-                              {axes.fault || axes.timed ? (
-                                <TooltipProvider>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8"
-                                        aria-label={"解除冷却 " + entry.name}
-                                        disabled={releaseCooldownPending(entry.id)}
-                                        onClick={() =>
-                                          setReleaseTarget({
-                                            id: entry.id,
-                                            name: entry.name,
-                                            axes,
-                                            timezone:
-                                              normalizeSchedule(entry.schedule)?.timezone ??
-                                              localScheduleTimezone(),
-                                          })
-                                        }
-                                      >
-                                        <Unlock
-                                          className="h-3.5 w-3.5"
-                                          strokeWidth={1.75}
-                                          aria-hidden="true"
-                                        />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      解除冷却：一次清掉熔断冷却、人工定时冷却与排期窗口，解除后该模型立即恢复路由
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TooltipProvider>
-                              ) : axes.schedule ? (
-                                <TooltipProvider>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8"
-                                        aria-label={"清除排期 " + entry.name}
-                                        disabled={clearSchedulePending(entry.id)}
-                                        onClick={() => {
-                                          // 只清规则、保留时区：空规则集 = 全天可用，不动启用与冷却。
-                                          const timezone =
-                                            normalizeSchedule(entry.schedule)?.timezone ??
-                                            localScheduleTimezone();
-                                          clearScheduleMutation.mutate({ id: entry.id, timezone });
-                                        }}
-                                      >
-                                        <CalendarOff
-                                          className="h-3.5 w-3.5"
-                                          strokeWidth={1.75}
-                                          aria-hidden="true"
-                                        />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      清除排期：排期是窗口规则、不是封禁；清除后该模型立即恢复全天可用
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TooltipProvider>
+                              {/* 已封禁（enabled=false）的行只留「启用」一条恢复路径：启用本身会
+                                  清熔断与定时冷却（2026-11-18 用户裁定），解除/清除按钮只服务启用中的行。 */}
+                              {entry.enabled && (axes.fault || axes.timed) ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={"解除冷却 " + entry.name}
+                                  disabled={releaseCooldownPending(entry.id)}
+                                  onClick={() =>
+                                    setReleaseTarget({
+                                      id: entry.id,
+                                      name: entry.name,
+                                      axes,
+                                      timezone:
+                                        normalizeSchedule(entry.schedule)?.timezone ??
+                                        localScheduleTimezone(),
+                                    })
+                                  }
+                                >
+                                  <Unlock className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                                  解除冷却
+                                </Button>
+                              ) : entry.enabled && axes.schedule ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={"清除排期 " + entry.name}
+                                  disabled={clearSchedulePending(entry.id)}
+                                  onClick={() => {
+                                    // 只清规则、保留时区：空规则集 = 全天可用，不动启用与冷却。
+                                    const timezone =
+                                      normalizeSchedule(entry.schedule)?.timezone ??
+                                      localScheduleTimezone();
+                                    clearScheduleMutation.mutate({ id: entry.id, timezone });
+                                  }}
+                                >
+                                  <CalendarOff className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                                  清除排期
+                                </Button>
                               ) : null}
                             </>
                           ) : row.entry.origin === "manual" && row.combo ? (
                             <>
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8"
-                                      aria-label={"编辑 " + entry.name}
-                                      onClick={() => openEdit(row.combo!)}
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>编辑</TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8"
-                                      aria-label={"删除 " + entry.name}
-                                      disabled={deleteMutation.isPending}
-                                      onClick={() => setPendingDelete(row.combo)}
-                                    >
-                                      <Trash2
-                                        // 危险前景统一 --danger-text（ui.md §2.3）
-                                        className="h-3.5 w-3.5 text-danger-text"
-                                        strokeWidth={1.75}
-                                        aria-hidden="true"
-                                      />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>删除</TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={"编辑 " + entry.name}
+                                onClick={() => openEdit(row.combo!)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                                编辑
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                // 危险前景统一 --danger-text（ui.md §2.3）
+                                className="text-danger-text"
+                                aria-label={"删除 " + entry.name}
+                                disabled={deleteMutation.isPending}
+                                onClick={() => setPendingDelete(row.combo)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                                删除
+                              </Button>
                             </>
                           ) : (
                             <span

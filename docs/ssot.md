@@ -225,7 +225,7 @@ npm run build; npm run lint:ui
 2. `/v1/*` 用用户 API Key 鉴权；管理 API 用管理员 JWT。
 3. 解析 `model` 为直连或组合（手动组合优先，其次自动组合）。
 4. 展开组合为候选叶子，按 `priority_path` 排序，同路径随机。
-5. 每个候选经 `admit_candidate` 检查启停、计划窗口、熔断/冷却/半开；跳过项写 attempts，不消耗轮次。
+5. 每个候选经 `admit_candidate` 检查启停、冷却窗口（schedule 规则，界面用词，旧称计划窗口）、熔断/冷却/半开；跳过项写 attempts，不消耗轮次。
 6. 请求改写：请求头 3 动作、请求体 9 动作，共用 6 种条件；请求头默认以客户端头为基线（见 §5.6「头透传」、ADR-074）。
 7. 传输：默认 httpx（ADR-065）；需要 SDK 归一化时该渠道设 `litellm`，非 OpenAI Chat 端点自动走 httpx。每候选尝试前扣全局重试预算。
 8. 流式先 `prime()` 拿到首个有意义事件；首字节后不再切换。
@@ -423,7 +423,7 @@ npm run build; npm run lint:ui
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | 首次启动创建；生产必须改 |
 | `ENCRYPTION_KEY` | 空 | 32 字节 base64；空则从 JWT_SECRET 派生 |
 | `CORS_ORIGINS` | `http://localhost:3680,http://127.0.0.1:3680` | 逗号分隔 |
-| `DEFAULT_TIMEZONE` | `Asia/Shanghai` | 看板/计划窗口缺省 IANA 时区 |
+| `DEFAULT_TIMEZONE` | `Asia/Shanghai` | 看板/冷却窗口缺省 IANA 时区 |
 
 ### 8.2 上游传输、连接池、超时与重试
 

@@ -382,8 +382,8 @@ export function ChannelModelsPanel({ channelId }: ChannelModelsPanelProps) {
                           <p className="break-words font-mono text-xs text-title">{model.upstream_model}</p>
                           <p className="mt-0.5 text-2xs text-muted-foreground">
                             {scheduleLabel ? (
-                              <span className="ml-1.5 text-2xs text-muted-foreground" title="计划窗口">
-                                · 计划 {scheduleLabel}
+                              <span className="ml-1.5 text-2xs text-muted-foreground" title="冷却窗口">
+                                · 冷却窗口 {scheduleLabel}
                               </span>
                             ) : null}
                             {model.enabled ? null : (

@@ -364,6 +364,8 @@ export function KeysPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        // 行内语义色对齐模型行口径：停用红、恢复绿（ui.md §2.3 危险前景统一 --danger-text）
+                        className={key.enabled ? "text-danger-text" : "text-success-text"}
                         disabled={updateMutation.isPending}
                         onClick={() =>
                           updateMutation.mutate({ id: key.id, payload: { enabled: !key.enabled } })
@@ -379,6 +381,8 @@ export function KeysPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        // 重置让旧密钥立即失效，属破坏性动作：与删除同用危险前景
+                        className="text-danger-text"
                         onClick={() => {
                           setResetting(key);
                           setActionError(null);

@@ -68,7 +68,7 @@ export function cooldownUntil(
 /* ---------------------------------------------------------------------------
  * 两种冷却方式共用的草稿模型（task-136）：
  * - duration 沿用 1h/24h/7d/自定义时刻，提交 op=cooldown（写 banned_until）；
- * - window 复用渠道详情「计划窗口」那套规则编辑器，提交 op=schedule（schedule_json v2）。
+ * - window 复用渠道详情「冷却窗口」那套规则编辑器，提交 op=schedule（schedule_json v2）。
  * 行内封禁弹窗与批量冷却弹窗共用同一段 UI 与提交分流，别复制第二套。
  * ------------------------------------------------------------------------- */
 
@@ -201,8 +201,9 @@ export interface CooldownDraftFieldsProps {
 }
 
 /**
- * 冷却方式的完整选择 UI：按持续时间 / 按计划窗口。
- * 行内「封禁」弹窗与批量「冷却」弹窗都渲染这一份，差异说明与校验也在这里。
+ * 冷却方式的完整选择 UI：定时冷却 / 冷却窗口。
+ * 批量「冷却」弹窗渲染这一份（行内封禁弹窗 2026-11-18 起压平成一组三个单选，
+ * 不再复用这里的 radio 层）；差异说明与校验也在这里。
  */
 export function CooldownDraftFields({
   idPrefix,
@@ -225,10 +226,10 @@ export function CooldownDraftFields({
           <RadioGroupItem value="duration" id={idPrefix + "-method-duration"} className="mt-0.5" />
           <div className="flex flex-col gap-0.5">
             <label htmlFor={idPrefix + "-method-duration"} className="cursor-pointer text-xs font-medium text-title">
-              按持续时间
+              定时冷却
             </label>
             <span className="text-2xs text-muted-foreground">
-              一次性冷却：到指定时刻自动恢复（提交 op=cooldown）。
+              一次性冷却：到指定时刻自动恢复。
             </span>
           </div>
         </div>
@@ -236,10 +237,10 @@ export function CooldownDraftFields({
           <RadioGroupItem value="window" id={idPrefix + "-method-window"} className="mt-0.5" />
           <div className="flex flex-col gap-0.5">
             <label htmlFor={idPrefix + "-method-window"} className="cursor-pointer text-xs font-medium text-title">
-              按计划窗口
+              冷却窗口
             </label>
             <span className="text-2xs text-muted-foreground">
-              重复时间窗：窗口内自动冷却、窗口外自动恢复（提交为排期规则）。
+              重复时段：窗口内自动冷却、窗口外自动恢复。
             </span>
           </div>
         </div>
@@ -301,7 +302,7 @@ export interface CooldownDialogProps {
   onConfirm: (submit: CooldownSubmit) => void;
 }
 
-/** 批量/行内「定时冷却」弹窗：持续时间与计划窗口两种方式共用。 */
+/** 批量/行内「定时冷却」弹窗：定时冷却与冷却窗口两种方式共用。 */
 export function CooldownDialog({
   open,
   onOpenChange,

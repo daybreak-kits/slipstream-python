@@ -550,7 +550,9 @@ describe("model management page", () => {
     // 封禁是危险动作：标题问句化（ui.md §2.3）
     expect(await screen.findByRole("dialog", { name: "封禁 channel-a/A？" })).toBeInTheDocument();
     expect(screen.getByText("封禁（永久）")).toBeInTheDocument();
-    expect(screen.getByText("冷却（定时）")).toBeInTheDocument();
+    // 2026-11-18 压平后三种方式同一组单选：定时冷却与冷却窗口取代嵌套的「冷却（定时）」层
+    expect(screen.getByText("定时冷却")).toBeInTheDocument();
+    expect(screen.getByText("冷却窗口")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "确认封禁" }));
 
     await waitFor(() => {

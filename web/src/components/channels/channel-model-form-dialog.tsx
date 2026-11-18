@@ -795,11 +795,11 @@ export function ChannelModelFormDialog({
           </section>
 
           <section
-            aria-label="计划窗口"
+            aria-label="冷却窗口"
             className="rounded-control border border-border bg-surface-2 p-3"
           >
             <div>
-              <h3 className="text-2sm font-medium text-title">计划窗口</h3>
+              <h3 className="text-2sm font-medium text-title">冷却窗口</h3>
               <p className="mt-0.5 text-2xs text-muted-foreground">
                 未设置规则时全天可用；多条规则是并集，命中任意一条就按冷却处理。
               </p>

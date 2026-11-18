@@ -385,10 +385,11 @@ export function foldFlowNodes(
   return { nodes: foldedNodes, links: [...aggregated.values()] };
 }
 
-/** 桑基图固定高度与可读宽度下限；窄屏由外层横向滚动，不压缩节点。 */
+/** 桑基图固定高度与可读宽度下限；窄屏由外层横向滚动，不压缩节点。
+ *  宽度只设下限不设上限：画布跟随容器铺满，避免面板边框到卡片右缘之间
+ *  出现一段无内容的「假边界」（2026-11-18 用户反馈）。 */
 export const FLOW_CHART_HEIGHT = 560;
 export const FLOW_MIN_WIDTH = 900;
-export const FLOW_MAX_WIDTH = 1400;
 
 const FLOW_NODE_WIDTH = 14;
 const FLOW_PADDING_X = 24;
