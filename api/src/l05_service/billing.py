@@ -90,6 +90,18 @@ _TIKTOKEN_MAX_CHARS = 131_072
 # o200k 下约 6-10 tok，取中值）。仅在跳过完整序列化的 prompt 折算路径上使用。
 _PROMPT_STRUCT_TOKENS = 8
 
+# 每个非文本多模态 part（图片/音频/文件）的估算常数。各家口径差异大且不可比：
+# OpenAI 低细节 85 / 高细节 ~1105，Claude 按像素 ≈ 1000（1024×768），Gemini 固定
+# 258——取档位中值 1000。估算行带 usage_estimated 标记（GLOSSARY §5），本就不
+# 是计费口径；取常数的动机是两侧都要消灭 base64 当文本处理的灾难性高估
+# （1MB 图 ≈ 350K tok，误差 350×）：精确路径把 media part 替换成占位符再分词，
+# 启发式路径直接加常数（2026-11-19 用户裁定按建议落地）。
+_IMAGE_TOKENS = 1000
+
+# media part 的识别键：content 列表里带这些键（或没有 text 字段但有 type）的
+# dict part 按一个媒体单位计。
+_MEDIA_PART_KEYS = ("image_url", "image", "input_audio", "input_file", "file")
+
 _TIKTOKEN_STATE: str = "untried"  # untried | ready | unavailable
 _TIKTOKEN_ENCODING: Any = None
 TIKTOKEN_ENCODING_NAME = "o200k_base"
@@ -134,17 +146,35 @@ def heuristic_tokens(text: str) -> int:
     return (len(text) - non_ascii) // 4 + (non_ascii * 3) // 2
 
 
+def _is_media_part(part: Any) -> bool:
+    """content 列表里的非文本 part（图片/音频/文件）按媒体单位计。"""
+    if not isinstance(part, dict):
+        return False
+    if isinstance(part.get("text"), str):
+        return False
+    return any(key in part for key in _MEDIA_PART_KEYS) or "type" in part
+
+
+def _count_media_parts(messages: list[dict[str, Any]]) -> int:
+    """Number of non-text media parts across all messages (image-ish units)."""
+    count = 0
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list):
+            count += sum(1 for part in content if _is_media_part(part))
+    return count
+
+
 def _prompt_text_parts(messages: list[dict[str, Any]]) -> Iterator[str]:
     # Yield the token-relevant text of a message list: content 字符串或多模态
     # part 的 text 字段、tool_calls 的 arguments JSON。粗估与启发式折算共用这一
-    # 份提取逻辑，两边对「什么算 prompt 文本」的认识不会漂移。
+    # 份提取逻辑，两边对「什么算 prompt 文本」的认识不会漂移。媒体 part 不产出
+    # 文本——它们按 _IMAGE_TOKENS 常数另计（见 _count_media_parts）。
     for message in messages:
         content = message.get("content")
         if isinstance(content, str):
             yield content
         elif isinstance(content, list):
-            # 非 text 的 part（如图片）不进粗估与折算：带图且文本量小的请求仍会
-            # 走精确路径、按完整序列化计数，与既有行为一致。
             for part in content:
                 if isinstance(part, dict):
                     text = part.get("text")
@@ -159,6 +189,28 @@ def _prompt_text_parts(messages: list[dict[str, Any]]) -> Iterator[str]:
                         yield arguments
 
 
+def _sanitized_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """精确路径的序列化输入：media part 换成占位符（base64 不得进分词器）。
+
+    旧行为把 base64 当普通文本 tokenize（1MB 图 ≈ 350K tok 的灾难性高估）；
+    占位符 + 常数（_IMAGE_TOKENS）把误差拉回常数级。只处理 content 列表，
+    其余字段浅拷贝。
+    """
+    sanitized: list[dict[str, Any]] = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list) and any(_is_media_part(part) for part in content):
+            replacement = []
+            for part in content:
+                if _is_media_part(part):
+                    replacement.append({"type": "media"})
+                else:
+                    replacement.append(part)
+            message = {**message, "content": replacement}
+        sanitized.append(message)
+    return sanitized
+
+
 def _prompt_chars(messages: list[dict[str, Any]]) -> int:
     """Cheap prompt magnitude check: sum content lengths, no serialization."""
     return sum(len(text) for text in _prompt_text_parts(messages))
@@ -167,7 +219,8 @@ def _prompt_chars(messages: list[dict[str, Any]]) -> int:
 def _prompt_heuristic_tokens(messages: list[dict[str, Any]]) -> int:
     """Script-rate folding for prompts too large (or unable) to tokenize exactly."""
     tokens = sum(heuristic_tokens(text) for text in _prompt_text_parts(messages))
-    return max(1, tokens + len(messages) * _PROMPT_STRUCT_TOKENS)
+    media = _count_media_parts(messages) * _IMAGE_TOKENS
+    return max(1, tokens + media + len(messages) * _PROMPT_STRUCT_TOKENS)
 
 
 def estimate_usage_from_text(
@@ -193,10 +246,12 @@ def estimate_usage_from_text(
         else None
     )
     if not prompt_tokens:
+        media_tokens = _count_media_parts(messages) * _IMAGE_TOKENS
         if prompt_needs_encode and encoding is not None:
-            # 小 prompt 只在此处序列化一次（阈值内 dumps 成本可忽略）。
-            serialized = json.dumps(messages, ensure_ascii=False)
-            prompt_tokens = len(encoding.encode_ordinary(serialized))
+            # 小 prompt 只在此处序列化一次（阈值内 dumps 成本可忽略）；media
+            # part 先换成占位符（base64 进分词器是 350× 级高估），常数另计。
+            serialized = json.dumps(_sanitized_messages(messages), ensure_ascii=False)
+            prompt_tokens = len(encoding.encode_ordinary(serialized)) + media_tokens
         else:
             # 大 prompt（或词表不可用）不构造完整 JSON：逐段折算 + 结构常数。
             prompt_tokens = _prompt_heuristic_tokens(messages)

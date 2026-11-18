@@ -1468,7 +1468,6 @@ async def start_direct_stream(
             # P2 字节快路径（语义同 complete_direct 的同名注释）：stream 请求
             # 还要求 bytes 无 "stream_options" needle，命中资格时在末尾 }
             # 前注入 include_usage；每个 candidate 逐次计算。
-            # 诊断期临时禁用（stream 64 QPS p50 2s 回归定位中）：强制走 dict。
             upstream_content = (
                 fast_forward_content(
                     candidate.channel,
@@ -1478,7 +1477,7 @@ async def start_direct_stream(
                     upstream_model=candidate.model.upstream_model,
                     prepared=prepared,
                 )
-                if False and raw_body is not None
+                if raw_body is not None
                 else None
             )
             if upstream_content is not None:
