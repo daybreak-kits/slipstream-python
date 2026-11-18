@@ -483,7 +483,7 @@ client 直连 agw（:9103），Python 仅旁路：非流式计费数据现成（
 | **P1-R6** | `attach_request_id` 纯 ASGI 化；`max_body_bytes` 生效（413）；在飞闸门前移到鉴权/body 解析之前（释放收归依赖栈） | 入口层开销 −；429/413 拒绝不再付解析成本 |
 | **P1-R8** | WAL fsync 移出事件循环（后台 fsync 线程 + seq 快照协议；100ms 持久性窗口与 kill -9 回放契约不变） | append 最大延迟 2.275 → 0.567ms（ext4 微基准） |
 | **P1-R4** | route_stats 过期改 stale-while-revalidate + 单飞后台刷新；record_failure 仅状态迁移才写（record_success 原有闸门保持） | 稳态请求路径 SQL → 0（冷缓存首查除外） |
-| **P2**（ADR-080，2026-11-19） | 请求侧字节域快路径（六条资格门 + needle 替换 + 注入，回退 dict 路径）+ 流式跟踪字节门 + `_body`/快照切片 | 同箱内部 A/B：流式 64 QPS CPU/ok 24.1 → **17.7ms**；RSS 重载平台 999 → **783MB**、HWM 903 → 834。对下午干净数字的验收待安静窗口复跑（夜间箱态全体 ~2× 劣化，ffe8a9c 原样重跑同样复现不了下午数字） |
+| **P2**（ADR-080，2026-11-19） | 请求侧字节域快路径（六条资格门 + needle 替换 + 注入，回退 dict 路径）+ 流式跟踪字节门 + `_body`/快照切片 + **泄漏修复**（close 置空 Response._request/stream） | **终验收（安静窗口）**：非流式 240 QPS 线速 **3.38ms**、膝点 **~300 RPS**（304 QPS 完成 82%、320 达成 305/s）；流式 64 QPS 线速 **12.9ms**、TTFT 8.8ms；重载长流 p50 91ms、**RSS HWM 仅 138MB**；**多波爬梯消失**（三波 settle 286→308→302MB 持平，修复前 619→808→990 每波 +180） |
 
 **P1 复测（生产推荐 env 前提下见 §12.4）**：非流式 200KB CPU/req **4.56ms**（128 QPS 线速）；直连名流式 **11.22ms**、rw 带改写 **10.67ms**（64 QPS 线速）；重载长流 8 QPS p50 **77ms**、CPU 69.5ms。对比 agentgateway：非流式 4.6 vs 1.0ms（4.6×），流式 11.2 vs 3.4ms（3.3×）——**本轮收官后仍未跑赢，但差距从 68×/5× 收敛到 3–5×**；每帧地板（Python ~5µs vs Rust ~0.1µs）与每请求框架底盘（~1.5ms ASGI + ~1.0ms httpx/aiosqlite）是残余差距的主体，对应 ADR-076 阶段 B 的门槛判断，不在 Python 内解决。
 
@@ -493,9 +493,24 @@ client 直连 agw（:9103），Python 仅旁路：非流式计费数据现成（
 
 **RSS（memray 两趟：峰值持有 vs settle 平台持有）**：重载流平台 703MB = ~250MB 真实活对象 + ~450MB 分配器滞留（逐帧 churn 撕裂 glibc arena，1.2MB 级大块 free 后不还 OS）。活对象里 **183MB 是泄漏类**：160/160 条流完成后 `UpstreamStream.response→Request→编码体`（1.2MB/流）仍被引用——close 不置空引用链存活到进程结束。峰值另有 body 三份拷贝（httpx 编码体 131.6MB + Starlette `_body` 105.3MB + 解析 dict 105.3MB）。P1.5 修复（close 置空 + `_body` 释放 + relay 帽收紧）后复测：平台 999 → **851MB**、HWM 1046 → **888MB**。残余平台 = 活对象（在飞 body 拷贝 ×3 为设计使然）+ arena 滞留，进一步压降需字节域全链路（原始 bytes 直传、按需解析）与逐帧 churn 减半，属结构项。
 
-**tiktoken 估算**（P1.5-D，提交 `89924d7`）：≤128K 字符走真分词（典型输出精度不变），超出走脚本折算（C 级计数，与旧实现 3016 用例逐位一致）；1.2MB finalize 37→1.15ms、4MB 极端 105→23.7ms。`usage_estimated`/缓存口径/思考块计入红线不变。已知行为变化：超长文本 prompt 不再计数非文本 part（旧行为把 base64 高估成 ~250K tok，误差方向改善）；图片常数口径待产品裁定。
+**tiktoken 估算**（P1.5-D，提交 `89924d7`）：≤128K 字符走真分词（典型输出精度不变），超出走脚本折算（C 级计数，与旧实现 3016 用例逐位一致）；1.2MB finalize 37→1.15ms、4MB 极端 105→23.7ms。`usage_estimated`/缓存口径/思考块计入红线不变。
 
 **ledger/service.py fsync 对称改造**（默认 off 管线）：与 usage 管线同款 `background_sync` 模式，32 项定向测试过。
+
+### 12.3b P2 泄漏修复终验收（2026-11-19，安静窗口，金丝雀直连臂 240 线速确认箱态）
+
+P1.5 的 close 置空修复了 Response 链，但 ffrefs 归因（id 复活 + gc.get_referrers）发现 **P2 快路径的改写 bytes 走的是另一条链**：`gateway.py:275 raw.replace 结果 ← httpx Request ← Response._request / Response.stream(BoundAsyncStream)`——每流 1.17MiB × 320 条（两波）= 366MiB 在 settle 20s 后仍存活。修复：close() 里 aclose 后再置空 `response._request` 与 `response.stream`（提交 `90ff9d8`）。终验收：
+
+| 指标 | 泄漏期（同箱同探针） | 修复后终验收 |
+|---|---|---|
+| 非流式 240 QPS | 1257/2880（44%，cpu 10.76ms） | **2880/2880 线速，cpu 3.38ms** |
+| 非流式膝点 | 240 起 shed | **~300+ RPS**（304 完成 82%、320 达成 305/s） |
+| 流式 64 QPS（快路径） | — | **线速 64、p50 13.6ms、TTFT 8.8ms、cpu 12.9ms** |
+| 重载长流 RSS HWM | — | **138MB**（修复前同场景 237MB） |
+| **三波爬梯** | 619→808→990（+180/波不收敛） | **286→308→302（波 2 起持平，爬梯消失）** |
+| 功能核验 | — | 27/28（存量时序偶发）+ 30s 混合 555 请求零失败 |
+
+多波 RSS 爬梯消失 = 泄漏修复的直接证据：波次间只余有界活对象（body 切片 + 在飞缓冲），非流式后 settle 392MB、重载 settle 727MB——残留为活对象 + 有界滞留，无爬梯。
 
 ### 12.4 内存治理：与 agentgateway 对比、回落行为与 allocator 权衡（2026-11-18）
 
