@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_name: str = "Slipstream"
     database_url: str = "sqlite+aiosqlite:///./data/app.db"
-    jwt_secret: str = "dev-secret-change-me"
+    # 40 bytes so PyJWT's InsecureKeyLengthWarning (HMAC-SHA256 wants >=32,
+    # RFC 7518 S3.2) stays silent on dev boots; production must still override.
+    jwt_secret: str = "dev-only-secret-change-me-before-deploy"
     jwt_expire_minutes: int = 60 * 24 * 7
     admin_username: str = "admin"
     admin_password: str = "admin"

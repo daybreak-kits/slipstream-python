@@ -421,7 +421,7 @@ npm run build; npm run lint:ui
 | `APP_ENV` | `local` | `local / staging / production`；后两者才注册 SIGTERM handler |
 | `APP_NAME` | `Slipstream` | 应用名 |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./data/app.db` | SQLAlchemy URL |
-| `JWT_SECRET` | `dev-secret-change-me` | 生产必须改 |
+| `JWT_SECRET` | `dev-only-secret-change-me-before-deploy`（40 字节，避免 PyJWT InsecureKeyLengthWarning；登录态换密钥后全部失效） | 生产必须改 |
 | `JWT_EXPIRE_MINUTES` | `10080` | 默认 7 天 |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | 首次启动创建；生产必须改 |
 | `ENCRYPTION_KEY` | 空 | 32 字节 base64；空则从 JWT_SECRET 派生 |
