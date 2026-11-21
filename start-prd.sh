@@ -21,8 +21,13 @@ if [ ! -x "$PY" ]; then
 fi
 
 if ! "$PY" -c "import fastapi, uvicorn" >/dev/null 2>&1; then
-  echo "==> installing api/requirements.txt"
-  "$PIP" install -r "$ROOT/api/requirements.txt"
+  if [ -f "$ROOT/api/requirements.lock" ]; then
+    echo "==> installing api/requirements.lock (pinned, compiled for Linux)"
+    "$PIP" install -r "$ROOT/api/requirements.lock"
+  else
+    echo "==> installing api/requirements.txt"
+    "$PIP" install -r "$ROOT/api/requirements.txt"
+  fi
 fi
 
 # The LiteLLM transport arm is an opt-in dependency (requirements-litellm.txt):
