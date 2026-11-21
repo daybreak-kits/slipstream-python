@@ -362,3 +362,7 @@ web/.vite/
 # against a future re-introduction dumping untracked files into the tree)
 web/test-results/
 web/playwright-report/
+
+# Recurring local tooling artifacts (regenerated on demand)
+web/.build-tmp/
+.playwright-mcp/
